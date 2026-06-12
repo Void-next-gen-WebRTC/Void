@@ -202,6 +202,7 @@ export function useSfuConnection({
                         part.userId === msg.userId ? { ...part, isMuted: msg.isMuted, isDeafened: msg.isDeafened } : part));
                     break;
                 case 'track-map': {
+                    console.log('[VOICE] track-map:', { trackId: msg.trackId, streamId: msg.streamId, userId: msg.userId, kind: msg.kind });
                     trackToUserMapRef.current.set(msg.trackId, msg.userId);
                     trackToUserMapRef.current.set(msg.streamId, msg.userId);
 
@@ -209,6 +210,7 @@ export function useSfuConnection({
                     const _orphan = orphanStreamsRef.current.get(msg.trackId)
                         ?? orphanStreamsRef.current.get(msg.streamId);
                     if (_orphan) {
+                        console.log('[VOICE] track-map resolving orphan:', { userId: msg.userId, kind: _orphan.kind });
                         if (_orphan.kind === 'audio') {
                             setRemoteStreams(r => new Map(r).set(msg.userId, _orphan.stream));
                         } else if (_orphan.kind === 'video') {
@@ -218,6 +220,7 @@ export function useSfuConnection({
                         orphanStreamsRef.current.delete(msg.streamId);
                     } else {
                         // Buffer the mapping for an `ontrack` that hasn't fired yet
+                        console.log('[VOICE] track-map buffering for future ontrack');
                         pendingTrackMapsRef.current.set(msg.trackId, { userId: msg.userId, kind: msg.kind });
                         pendingTrackMapsRef.current.set(msg.streamId, { userId: msg.userId, kind: msg.kind });
                     }
@@ -226,6 +229,7 @@ export function useSfuConnection({
                     setRemoteStreams(prev => {
                         const _src = prev.get(msg.streamId) ?? prev.get(msg.trackId);
                         if (!_src) return prev;
+                        console.log('[VOICE] track-map migrating audio stream from', msg.streamId || msg.trackId, 'to', msg.userId);
                         const _next = new Map(prev);
                         _next.set(msg.userId, _src);
                         _next.delete(msg.streamId);
@@ -235,6 +239,7 @@ export function useSfuConnection({
                     setRemoteVideoStreams(prev => {
                         const _src = prev.get(msg.streamId) ?? prev.get(msg.trackId);
                         if (!_src) return prev;
+                        console.log('[VOICE] track-map migrating video stream from', msg.streamId || msg.trackId, 'to', msg.userId);
                         const _next = new Map(prev);
                         _next.set(msg.userId, _src);
                         _next.delete(msg.streamId);
