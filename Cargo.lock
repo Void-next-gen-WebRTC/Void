@@ -1446,7 +1446,7 @@ dependencies = [
 
 [[package]]
 name = "desktop"
-version = "0.1.10"
+version = "0.1.17"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1471,6 +1471,7 @@ dependencies = [
  "tokio-tungstenite 0.28.0",
  "webview2-com",
  "windows",
+ "x509-parser",
 ]
 
 [[package]]
