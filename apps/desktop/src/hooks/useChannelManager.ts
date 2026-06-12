@@ -52,8 +52,21 @@ export function useChannelManager({
             const source = audioCtx.createMediaStreamSource(_rawStream);
             const destination = audioCtx.createMediaStreamDestination();
 
-            await audioCtx.audioWorklet.addModule('/worker/noise-gate.worklet.js');
-            const _gateNode = new AudioWorkletNode(audioCtx, 'noise-gate-processor');
+            // Try to setup noise gate worklet, but have a fallback if it fails
+            let useNoiseGate = smartGateEnabled;
+            let _gateNode: AudioWorkletNode | null = null;
+
+            if (useNoiseGate) {
+                try {
+                    await audioCtx.audioWorklet.addModule('/worker/noise-gate.worklet.js');
+                    _gateNode = new AudioWorkletNode(audioCtx, 'noise-gate-processor');
+                    console.log('[VOICE] joinChannel noise-gate worklet loaded successfully');
+                } catch (workletErr) {
+                    console.error('[VOICE] joinChannel noise-gate worklet failed, falling back to direct connection:', workletErr);
+                    useNoiseGate = false;
+                    _gateNode = null;
+                }
+            }
             noiseGateNodeRef.current = _gateNode;
 
             const wasmRes = await fetch(coreWasmUrl);
@@ -62,20 +75,22 @@ export function useChannelManager({
             let rtSeal: number | null = null;
             try { rtSeal = await invoke<number>('get_dsp_token'); } catch { /* web context */ }
 
-            _gateNode.port.onmessage = (event) => {
-                if (event.data.type === 'volume') rawMicVolumeRef.current = event.data.volume;
-            };
+            if (_gateNode) {
+                _gateNode.port.onmessage = (event) => {
+                    if (event.data.type === 'volume') rawMicVolumeRef.current = event.data.volume;
+                };
 
-            const db = (vadThreshold * 100) - 100;
-            const activeDb = vadAuto ? -80 : db;
-            const linearThreshold = Math.pow(10, activeDb / 20);
+                const db = (vadThreshold * 100) - 100;
+                const activeDb = vadAuto ? -80 : db;
+                const linearThreshold = Math.pow(10, activeDb / 20);
 
-            _gateNode.port.postMessage({
-                type: 'INIT_WASM', wasmBuffer, rtSeal,
-                threshold: linearThreshold, attack: 0.01, release: 0.1, autoMode: vadAuto,
-            });
+                _gateNode.port.postMessage({
+                    type: 'INIT_WASM', wasmBuffer, rtSeal,
+                    threshold: linearThreshold, attack: 0.01, release: 0.1, autoMode: vadAuto,
+                });
+            }
 
-            if (smartGateEnabled) {
+            if (useNoiseGate && _gateNode) {
                 source.connect(_gateNode);
                 _gateNode.connect(destination);
             } else {
@@ -83,12 +98,28 @@ export function useChannelManager({
             }
 
             const _gateStream = destination.stream;
+            // Ensure all audio tracks are enabled
+            _gateStream.getAudioTracks().forEach(track => {
+                if (!track.enabled) {
+                    console.warn('[VOICE] joinChannel audio track was disabled, enabling it');
+                    track.enabled = true;
+                }
+            });
+
             localAudioCtxRef.current = audioCtx;
             localStreamRef.current = _gateStream;
             setLocalStream(_gateStream);
             setRawLocalStream(_rawStream);
             channelIdRef.current = nextChannelId;
             setChannelId(nextChannelId);
+
+            console.log('[VOICE] joinChannel audio setup complete', {
+                hasTracks: _gateStream.getAudioTracks().length > 0,
+                trackEnabled: _gateStream.getAudioTracks()[0]?.enabled ?? false,
+                streamId: _gateStream.id,
+                trackIds: _gateStream.getAudioTracks().map(t => t.id),
+            });
+
             const _joinPayload = {
                 type: 'join' as const,
                 channelId: nextChannelId,

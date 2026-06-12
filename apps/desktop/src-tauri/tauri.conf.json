@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost tauri://localhost https://tauri.localhost https://github.com wss://89.168.59.45:3001 https://89.168.59.45:3001; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost tauri://localhost https://tauri.localhost https://github.com wss://api.voidsfu.com https://api.voidsfu.com wss://89.168.59.45:3001 https://89.168.59.45:3001; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
     }
   },
   "plugins": {

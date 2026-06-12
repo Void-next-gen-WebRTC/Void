@@ -71,12 +71,33 @@ export function useSfuConnection({
         ignoreOfferRef.current = false;
         isSettingRemoteAnswerPendingRef.current = false;
 
-        const local = localStreamRef.current;
-        console.log('[VOICE] connectSFU local audio tracks:', local?.getAudioTracks().length ?? 0);
+        // Wait for local stream to be ready (with retries to handle race conditions)
+        let retries = 50; // ~2.5s timeout (50 * 50ms)
+        let local = localStreamRef.current;
+        while (!local && retries > 0) {
+            console.warn('[VOICE] connectSFU waiting for localStream to be ready... (' + retries + ' retries left)');
+            await new Promise(resolve => setTimeout(resolve, 50));
+            local = localStreamRef.current;
+            retries--;
+        }
+
+        if (!local) {
+            console.error('[VOICE] connectSFU FAILED: localStream not available after timeout');
+            return; // Exit early if stream never appears
+        }
+
+        console.log('[VOICE] connectSFU local audio tracks:', local.getAudioTracks().length);
         if (local) local.getAudioTracks().forEach(t => pc.addTrack(t, local));
 
         const screen = screenStreamRef.current;
         if (screen) screen.getVideoTracks().forEach(t => pc.addTrack(t, screen));
+
+        // Log track status before proceeding
+        console.log('[VOICE] connectSFU tracks added:', {
+            audioTrackCount: local.getAudioTracks().length,
+            audioTracksEnabled: local.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted })),
+            videoTrackCount: screen?.getVideoTracks().length ?? 0,
+        });
 
         pc.onicecandidate = (e) => {
             if (e.candidate) sendSignal({ type: 'ice', candidate: e.candidate.toJSON() } as any);
