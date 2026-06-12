@@ -5,6 +5,12 @@ on:
     tags:
       - 'v*'
 
+env:
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+  CARGO_NET_RETRY: 5
+  CARGO_HTTP_TIMEOUT: 120
+  CARGO_HTTP_MULTIPLEXING: "false"
+
 # Required so `tauri-action` can create the GitHub Release and upload bundles
 # via the default GITHUB_TOKEN. The repo Settings → Actions → General →
 # "Workflow permissions" must also be set to "Read and write permissions",
@@ -112,12 +118,41 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.platform }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-${{ matrix.platform }}-cargo-release-
+
+      - name: Warm Cargo dependencies (retry)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          function Invoke-WithRetry {
+            param(
+              [scriptblock] $Script,
+              [int] $MaxAttempts = 4,
+              [int] $DelaySeconds = 12
+            )
+
+            for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+              try {
+                & $Script
+                return
+              }
+              catch {
+                if ($attempt -eq $MaxAttempts) { throw }
+                Write-Host "Cargo command failed (attempt $attempt/$MaxAttempts). Retrying in $DelaySeconds s..."
+                Start-Sleep -Seconds $DelaySeconds
+              }
+            }
+          }
+
+          Invoke-WithRetry { cargo fetch --locked --manifest-path apps/desktop/src-tauri/Cargo.toml }
+          Invoke-WithRetry { cargo fetch --locked --manifest-path packages/core-wasm/Cargo.toml }
+          Invoke-WithRetry { cargo metadata --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 | Out-Null }
 
       - name: Install wasm-pack
-        run: cargo install wasm-pack
+        run: cargo install wasm-pack --locked
 
       - name: Build WASM package
         run: |

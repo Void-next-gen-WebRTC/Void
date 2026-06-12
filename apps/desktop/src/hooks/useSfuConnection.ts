@@ -251,6 +251,7 @@ export function useSfuConnection({
                 case 'offer': {
                     if (!sfuConnectionRef.current) await connectSFU();
                     const _pc = sfuConnectionRef.current!;
+
                     // The SFU sends `sdp` as a raw SDP string (not a full
                     // RTCSessionDescriptionInit). Wrap it client-side. Using
                     // a plain init object also avoids the deprecated
@@ -258,12 +259,15 @@ export function useSfuConnection({
                     // produced a broken description in modern browsers and
                     // prevented DTLS from completing — the actual reason
                     // remote audio/video was never delivered.
+
                     const _offerInit: RTCSessionDescriptionInit = { type: 'offer', sdp: msg.sdp };
+
                     // Polite-peer collision detection: a glare happens when a
                     // remote offer arrives while a local offer is in-flight or
                     // the PC is not in a clean `stable` state. The SFU is
                     // impolite, so we always accept its offer, performing a
                     // rollback when needed (browsers ≥ M80 / Firefox ≥ 75).
+
                     const _readyForOffer = !makingOfferRef.current
                         && (_pc.signalingState === 'stable' || isSettingRemoteAnswerPendingRef.current);
                     const _offerCollision = !_readyForOffer;
