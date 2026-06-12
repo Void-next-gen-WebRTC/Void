@@ -17,11 +17,9 @@ rule_files:
 
 scrape_configs:
   - job_name: 'signaling-server'
-    scheme: 'https'
-    tls_config:
-      insecure_skip_verify: true
+    scheme: 'http'
     static_configs:
-      - targets: ['89.168.59.45:3001']
+      - targets: ['localhost:3001']
     metrics_path: '/metrics'
     scrape_interval: 5s
 
