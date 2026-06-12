@@ -50,7 +50,8 @@ export function useSfuConnection({
         if (videoTrack) {
             videoTrack.onended = () => removeScreenTrack();
             if (sfuConnectionRef.current) {
-                sfuConnectionRef.current.addTrack(videoTrack, stream);
+                // Use addTransceiver for consistency with audio tracks.
+                sfuConnectionRef.current.addTransceiver(videoTrack, { direction: 'sendonly' });
             }
         }
     }, [removeScreenTrack]);
@@ -87,10 +88,12 @@ export function useSfuConnection({
         }
 
         console.log('[VOICE] connectSFU local audio tracks:', local.getAudioTracks().length);
-        if (local) local.getAudioTracks().forEach(t => pc.addTrack(t, local));
+        // Use addTransceiver instead of addTrack for more reliable track lifecycle.
+        // Explicit direction ensures tracks persist through renegotiations.
+        local.getAudioTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv' }));
 
         const screen = screenStreamRef.current;
-        if (screen) screen.getVideoTracks().forEach(t => pc.addTrack(t, screen));
+        if (screen) screen.getVideoTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv' }));
 
         // Log track status before proceeding
         console.log('[VOICE] connectSFU tracks added:', {
@@ -143,7 +146,9 @@ export function useSfuConnection({
             console.log('[VOICE] onnegotiationneeded fired');
             try {
                 makingOfferRef.current = true;
-                const _offer = await pc.createOffer();
+                // Force all media types to be negotiated even if no tracks yet.
+                // This ensures the SDP has m= lines ready for when tracks activate.
+                const _offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
                 await pc.setLocalDescription(_offer);
                 if (_offer.sdp) {
                     console.log('[VOICE] sending offer (sdp size=' + _offer.sdp.length + ')');

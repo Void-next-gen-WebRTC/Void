@@ -49,6 +49,15 @@ export function useChannelManager({
             const _rawStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints });
             console.log('[VOICE] joinChannel mic acquired, tracks:', _rawStream.getAudioTracks().length);
             const audioCtx = new window.AudioContext();
+            
+            // Ensure AudioContext is running. Browser autoplay policies may leave
+            // it suspended even after getUserMedia, preventing audio processing.
+            if (audioCtx.state === 'suspended') {
+                await audioCtx.resume();
+                console.log('[VOICE] joinChannel AudioContext resumed from suspended state');
+            }
+            console.log('[VOICE] joinChannel AudioContext state:', audioCtx.state);
+            
             const source = audioCtx.createMediaStreamSource(_rawStream);
             const destination = audioCtx.createMediaStreamDestination();
 
@@ -163,4 +172,3 @@ export function useChannelManager({
 
     return { joinChannel, leaveChannel };
 }
-
