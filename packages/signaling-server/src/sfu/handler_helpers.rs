@@ -56,10 +56,13 @@ pub async fn handle_authenticate(
         }
     };
 
-    if let Some(payload) = serialize_message(&outcome) {
-        if tx.try_send(payload).is_err() {
-            WS_QUEUE_DROPPED.inc();
+    match serialize_message(&outcome) {
+        Some(payload) => {
+            if tx.try_send(payload).is_err() {
+                WS_QUEUE_DROPPED.inc();
+            }
         }
+        None => {}
     }
 }
 
@@ -86,10 +89,13 @@ pub async fn handle_dm_send(
                 client_msg_id,
                 timestamp: entry.timestamp,
             };
-            if let Some(payload) = serialize_message(&ack) {
-                if tx.try_send(payload).is_err() {
-                    WS_QUEUE_DROPPED.inc();
+            match serialize_message(&ack) {
+                Some(payload) => {
+                    if tx.try_send(payload).is_err() {
+                        WS_QUEUE_DROPPED.inc();
+                    }
                 }
+                None => {}
             }
         }
         Err(err) => {
@@ -118,10 +124,13 @@ async fn push_error(tx: &mpsc::Sender<String>, message: &str) {
     let msg = ServerMessage::Error {
         message: message.into(),
     };
-    if let Some(payload) = serialize_message(&msg) {
-        if tx.try_send(payload).is_err() {
-            WS_QUEUE_DROPPED.inc();
+    match serialize_message(&msg) {
+        Some(payload) => {
+            if tx.try_send(payload).is_err() {
+                WS_QUEUE_DROPPED.inc();
+            }
         }
+        None => {}
     }
 }
 

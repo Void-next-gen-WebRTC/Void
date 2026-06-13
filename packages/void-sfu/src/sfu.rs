@@ -107,10 +107,10 @@ impl Sfu {
 
         // Close PC if any.
         let pc_opt = entry.peer_connection.lock().await.take();
-        if let Some(pc) = pc_opt
-            && let Err(e) = pc.close().await
-        {
-            debug!("pc.close failed for {}: {:?}", peer_id, e);
+        if let Some(pc) = pc_opt {
+            if let Err(e) = pc.close().await {
+                debug!("pc.close failed for {}: {:?}", peer_id, e);
+            }
         }
 
         let room_id_opt = entry.room.read().clone();
@@ -141,15 +141,15 @@ impl Sfu {
 
         // Detach from previous room (if any).
         let previous = entry.room.read().clone();
-        if let Some(prev) = previous
-            && prev != room_id
-        {
-            self.detach_from_room(peer_id, &prev).await;
-            self.notify(RoomEvent::PeerLeft {
-                room: prev,
-                peer: peer_id.clone(),
-            })
-            .await;
+        if let Some(prev) = previous {
+            if prev != room_id {
+                self.detach_from_room(peer_id, &prev).await;
+                self.notify(RoomEvent::PeerLeft {
+                    room: prev,
+                    peer: peer_id.clone(),
+                })
+                .await;
+            }
         }
 
         // Get-or-create the target room.
