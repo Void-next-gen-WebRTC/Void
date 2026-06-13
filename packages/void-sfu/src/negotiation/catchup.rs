@@ -11,7 +11,7 @@
 
 use std::sync::Arc;
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
@@ -121,6 +121,14 @@ pub(super) async fn catchup_existing_tracks(
             // offer with no new m-line — exactly the "peers see each other
             // but hear nothing" symptom. We surface the error instead.
             warn!("catchup add_transceiver_from_track failed: {:?}", e);
+        } else {
+            info!(
+                "catchup destination attached source={} -> peer={} track_id={} stream_id={}",
+                item.source_peer,
+                peer_id,
+                item.track_id,
+                item.stream_id
+            );
         }
     }
 
@@ -164,6 +172,7 @@ pub(super) async fn catchup_existing_tracks(
     // upstream, so a polite client always receives it before this offer.
     let sink = Arc::clone(&peer_entry.sink);
     let peer_id_clone = peer_id.clone();
+    info!("catchup renegotiation scheduled for peer={}", peer_id);
     tokio::spawn(async move {
         spawn_renegotiation_offer(pc, sink, peer_id_clone).await;
     });
