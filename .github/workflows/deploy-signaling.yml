@@ -162,7 +162,7 @@ jobs:
             echo "=== Tests de santé ==="
             # Tests de santé bavards avec logs d'erreur explicites
             curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
-            curl -s --max-time 5 http://localhost:9090/-/healthy | grep -q "Healthy" && echo "✅ Prometheus OK" || { echo "❌ Prometheus FAILED"; exit 1; }
+            curl -s --max-time 5 http://localhost:9090/prometheus/-/healthy | grep -q "Healthy" && echo "✅ Prometheus OK" || { echo "❌ Prometheus FAILED"; exit 1; }
             curl -s --max-time 5 http://localhost:3000/api/health | grep -q "ok" && echo "✅ Grafana OK" || { echo "❌ Grafana FAILED"; exit 1; }
 
             sudo docker image prune -f
