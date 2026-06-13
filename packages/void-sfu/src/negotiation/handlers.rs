@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use webrtc::ice_transport::ice_candidate::RTCIceCandidateInit;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::configuration::RTCConfiguration;
@@ -175,6 +175,7 @@ pub(super) fn install_ice_relay(
                 sdp_mline_index: init.sdp_mline_index,
                 username_fragment: init.username_fragment,
             };
+            info!("outbound ICE candidate for {}: {}", pid, ice.candidate);
             if let Err(e) = sink.deliver(&pid, Outbound::Ice { candidate: ice }).await {
                 debug!("sink ice delivery failed: {:?}", e);
             }
@@ -220,7 +221,12 @@ pub(crate) async fn handle_ice(
 
     let pc_opt = entry.peer_connection.lock().await.clone();
     let Some(pc) = pc_opt else {
-        // ICE before offer is benign; clients buffer their own candidates.
+        // Surface this race explicitly in logs; repeated occurrences can explain
+        // disconnected state if no later candidate arrives.
+        warn!(
+            "inbound ICE dropped (no peer connection yet) for {}: {}",
+            peer_id, candidate.candidate
+        );
         return Ok(());
     };
 
@@ -230,6 +236,7 @@ pub(crate) async fn handle_ice(
         sdp_mline_index: candidate.sdp_mline_index,
         username_fragment: candidate.username_fragment,
     };
+    info!("inbound ICE accepted for {}: {}", peer_id, init.candidate);
     pc.add_ice_candidate(init).await?;
     Ok(())
 }
