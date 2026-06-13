@@ -37,6 +37,7 @@ services:
       - '--storage.tsdb.path=/prometheus'
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
+      - '--web-external-url=https://${DOMAIN}/prometheus/'
     restart: unless-stopped
 
   grafana:
@@ -68,6 +69,7 @@ services:
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
+      - '--web.external-url=https://${DOMAIN}/alertmanager/'
     restart: unless-stopped
 
   node-exporter:
