@@ -12,6 +12,7 @@
 use signaling_server::{auth, fraud, friends, metrics, nonce, sfu, store};
 
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -185,15 +186,31 @@ fn build_webrtc_api() -> Result<webrtc::api::API, webrtc::Error> {
     let ephemeral_udp = EphemeralUDP::new(10000, 20000)?;
     setting_engine.set_udp_network(UDPNetwork::Ephemeral(ephemeral_udp));
 
+    // Exclude virtual/bridge interfaces from host ICE candidate gathering.
+    let deny_prefixes = parse_csv_env(
+        "ICE_INTERFACE_DENY",
+        "lo,docker,br-,veth,virbr,vmnet,cni,flannel",
+    );
+    let allow_prefixes = parse_csv_env("ICE_INTERFACE_ALLOW", "en,eth,ens,eno,enp,wlan,wl");
+    setting_engine.set_interface_filter(Box::new(move |iface: &str| {
+        interface_allowed(iface, &allow_prefixes, &deny_prefixes)
+    }));
+
     // Oracle Cloud (and most IaaS) assigns a public IP via 1:1 NAT.
     // Without this, host candidates advertise 10.x / 172.x (unreachable)
     // and the srflx candidate often fails STUN checks behind cloud NAT.
     if let Ok(ip) = std::env::var("PUBLIC_IP") {
-        setting_engine.set_nat_1to1_ips(vec![ip], CandidateType::Host.into());
-        println!("🚀 WebRTC NAT 1:1 configuré avec l'IP: {}", std::env::var("PUBLIC_IP").unwrap());
+        let trimmed = ip.trim();
+        if trimmed.parse::<IpAddr>().is_ok() {
+            setting_engine.set_nat_1to1_ips(vec![trimmed.to_string()], CandidateType::Host.into());
+            println!("WebRTC NAT 1:1 configured with PUBLIC_IP={}", trimmed);
+        } else {
+            eprintln!("Ignoring invalid PUBLIC_IP value: {}", trimmed);
+        }
     } else {
-        println!("PUBLIC_IP non définie, passage en mode local (LAN)")
+        println!("PUBLIC_IP is not set, running in local/LAN ICE mode");
     }
+
     let mut registry = InterceptorRegistry::default();
     registry = register_default_interceptors(registry, &mut m)?;
 
@@ -202,4 +219,28 @@ fn build_webrtc_api() -> Result<webrtc::api::API, webrtc::Error> {
         .with_interceptor_registry(registry)
         .with_setting_engine(setting_engine)
         .build())
+}
+
+fn parse_csv_env(var_name: &str, default_value: &str) -> Vec<String> {
+    std::env::var(var_name)
+        .unwrap_or_else(|_| default_value.to_string())
+        .split(',')
+        .map(|part| part.trim().to_ascii_lowercase())
+        .filter(|part| !part.is_empty())
+        .collect()
+}
+
+fn interface_allowed(name: &str, allow_prefixes: &[String], deny_prefixes: &[String]) -> bool {
+    let lower_name = name.to_ascii_lowercase();
+    if deny_prefixes
+        .iter()
+        .any(|prefix| lower_name.starts_with(prefix))
+    {
+        return false;
+    }
+
+    allow_prefixes.is_empty()
+        || allow_prefixes
+            .iter()
+            .any(|prefix| lower_name.starts_with(prefix))
 }

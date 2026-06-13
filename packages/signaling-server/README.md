@@ -260,7 +260,14 @@ The legacy REST routes still exist for tooling/curl interop and for clients that
 RUST_LOG=info       # Log level: trace | debug | info | warn | error
 DEV_MODE=1          # Optional: HTTP-only dev server (no TLS)
 PORT=3001           # Optional: HTTP/WS listen port
+PUBLIC_IP=89.x.x.x  # Public IPv4 used for ICE host candidate 1:1 NAT rewrite
+
+# Optional ICE candidate interface filters (comma-separated prefixes)
+ICE_INTERFACE_ALLOW=en,eth,ens,eno,enp,wlan,wl
+ICE_INTERFACE_DENY=lo,docker,br-,veth,virbr,vmnet,cni,flannel
 ```
+
+`ICE_INTERFACE_DENY` prevents host candidates from virtual interfaces (like `docker0`) that can cause intermittent ICE `Connected -> Failed` transitions in cloud + container setups.
 
 | Port | Protocol | Description |
 |---|---|---|
@@ -782,14 +789,14 @@ toute modification d'un chemin chaud.
 > **Lecture grand public.** 30 ms, c'est plus court qu'un battement de cils
 > humain (~100 ms). Le but n'est **pas** d'aller vite : c'est de rendre une
 > base de mots de passe volée inutilisable — un attaquant ne peut tester que
-> ~33 mots par seconde et par cœur, contre des milliards/s sur un dump
+> ~33 mots par seconde et par cœur, contre des milliards par seconde sur un dump
 > SHA-256 brut. La vérification Ed25519 coûte ~3 ms ici parce que chaque
 > appel re-décode la clé publique et parse l'enveloppe PKCS#8 ; c'est le
 > coût réaliste par login d'un flux passwordless — soit quand même
 > **300 logins / s par cœur**, largement au-dessus de tout taux d'inscription
 > raisonnable.
 
-#### Codec wire (groupe `codec`)
+#### Wire codec (groupe `codec`)
 
 Encodage/décodage des bodies protobuf échangés avec le client desktop.
 
@@ -819,7 +826,7 @@ Encodage/décodage des bodies protobuf échangés avec le client desktop.
 > soit **10 millions de logins / seconde par cœur** avant que le format de
 > fil devienne un goulot. Même encoder un annuaire complet de 1 000 utilisateurs
 > (`UserSummaryList`) ne coûte que 144 µs — assez rapide pour redessiner
-> cette liste à chaque frame d'un écran 60 fps en gardant 99,1 % du budget
+> cette liste à chaque frame d'un écran 60 fps en gardant 99.1 % du budget
 > de frame disponible pour le reste.
 
 #### Persistance (groupe `prost_store`)
@@ -910,8 +917,8 @@ codec/proto_encode_user_summary_list/100
 - **`time:`** borne basse / médiane / borne haute d'un intervalle de
   confiance à 95 % sur les itérations échantillonnées. Utiliser la valeur
   **du milieu** comme référence.
-- **`thrpt:`** le même intervalle exprimé en `Throughput::Bytes` divisé par
-  le temps. Plus c'est grand, mieux c'est.
+- **`thrpt:`** le même intervalle exprimé en `Throughput::Bytes` divisé
+  par le temps. Plus c'est grand, mieux c'est.
 
 > **Astuce.** Une régression qui déplace la médiane de plus de ~5 % entre
 > deux runs sur la même machine mérite enquête ; en-dessous, c'est du bruit
