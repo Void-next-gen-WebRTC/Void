@@ -63,6 +63,18 @@ export const VoiceProvider = ({ children }: { children: ReactNode }) => {
     const usernameRef = useRef<string>("");
     const channelIdRef = useRef<string | null>(null);
     const signalQueueRef = useRef<ClientSignalMessage[]>([]);
+    const reconnectTimerRef = useRef<number | null>(null);
+    const connectSocketRef = useRef<(() => Promise<void>) | null>(null);
+
+    const scheduleReconnect = useCallback((delayMs: number) => {
+        if (reconnectTimerRef.current !== null) {
+            return;
+        }
+        reconnectTimerRef.current = window.setTimeout(() => {
+            reconnectTimerRef.current = null;
+            void connectSocketRef.current?.();
+        }, delayMs);
+    }, []);
 
     // ── Extracted hooks ──────────────────────────────────────────────
     const settings = useVoiceSettings({ noiseGateNodeRef, username: authUsername });
@@ -117,16 +129,32 @@ export const VoiceProvider = ({ children }: { children: ReactNode }) => {
             console.log('[VOICE] connectSocket SKIP (no userId or already connected)');
             return;
         }
+
+        const _checkUrl = SIGNALING_URL
+            .replace(/^wss?:\/\//, (m: string) => m === 'wss://' ? 'https://' : 'http://')
+            .replace(/\/ws$/, '/health');
         try {
-            const _checkUrl = SIGNALING_URL
-                .replace(/^wss?:\/\//, (m: string) => m === 'wss://' ? 'https://' : 'http://')
-                .replace(/\/ws$/, '/health');
             console.log('[VOICE] health check →', _checkUrl);
             await invoke('call_signaling', { url: _checkUrl });
             console.log('[VOICE] health check OK');
+        } catch (err) {
+            // Health pre-check is informational only: WS handshake decides the real state.
+            console.warn('[VOICE] health check failed, continuing with WS connect:', err);
+        }
 
+        let socket: WebSocket;
+        try {
             console.log('[VOICE] WebSocket.connect →', SIGNALING_URL);
-            const socket = await WebSocket.connect(SIGNALING_URL);
+            socket = await WebSocket.connect(SIGNALING_URL);
+        } catch (err) {
+            console.error('[VOICE] WS connect failed:', err);
+            setIsConnected(false);
+            socketRef.current = null;
+            scheduleReconnect(5_000);
+            return;
+        }
+
+        try {
             socketRef.current = socket;
             setIsConnected(true);
             console.log('[VOICE] WebSocket OPEN');
@@ -144,7 +172,7 @@ export const VoiceProvider = ({ children }: { children: ReactNode }) => {
                     socketRef.current = null;
                     setSignalingSender(null);
                     setIsConnected(false);
-                    setTimeout(connectSocket, 3_000);
+                    scheduleReconnect(3_000);
                 }
             });
 
@@ -174,12 +202,22 @@ export const VoiceProvider = ({ children }: { children: ReactNode }) => {
                 }
             }
         } catch (err) {
-            console.error("[VOICE] Connection/pinning failure:", err);
+            console.error('[VOICE] WS setup failed:', err);
             setIsConnected(false);
             socketRef.current = null;
-            setTimeout(connectSocket, 5000);
+            setSignalingSender(null);
+            try {
+                await socket.disconnect();
+            } catch {
+                // Ignore disconnect errors on already broken sockets.
+            }
+            scheduleReconnect(5_000);
         }
-    }, [handleMessage, fingerprintRef]);
+    }, [fingerprintRef, handleMessage, scheduleReconnect]);
+
+    useEffect(() => {
+        connectSocketRef.current = connectSocket;
+    }, [connectSocket]);
 
     const setUserInfo = useCallback((username: string, userId: string) => {
         console.log('[VOICE] setUserInfo', { username, userId });
@@ -254,7 +292,15 @@ export const VoiceProvider = ({ children }: { children: ReactNode }) => {
     // ── Init & cleanup ───────────────────────────────────────────────
     useEffect(() => {
         initWasm().then(() => setWasmReady(true)).catch(() => setWasmReady(true));
-        return () => { if (socketRef.current) socketRef.current.disconnect(); };
+        return () => {
+            if (reconnectTimerRef.current !== null) {
+                window.clearTimeout(reconnectTimerRef.current);
+                reconnectTimerRef.current = null;
+            }
+            if (socketRef.current) {
+                void socketRef.current.disconnect();
+            }
+        };
     }, []);
 
     const { networkQuality, ping, averagePing, packetLoss } = useNetworkStats({
