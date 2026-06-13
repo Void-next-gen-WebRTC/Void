@@ -34,7 +34,7 @@ pub(super) fn build_rtc_config(ice_servers: &[String]) -> RTCConfiguration {
         println!("ℹ️ [SFU-CONFIG] IP publique détectée : désactivation des serveurs STUN/TURN pour le SFU.");
         vec![] // On laisse la liste VIDE pour le serveur
     } else {
-        // En mode local/LAN, on garde la config d'origine si nécessaire
+        // En mode local/LAN, on garde la config d'origine
         vec![RTCIceServer {
             urls: ice_servers.to_vec(),
             ..Default::default()
