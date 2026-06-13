@@ -36,3 +36,4 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
         ApiError::Unauthorized("Invalid token".into())
     }
 }
+
