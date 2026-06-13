@@ -30,7 +30,6 @@ use webrtc::api::setting_engine::SettingEngine;
 use webrtc::ice::candidate::CandidateType;
 use webrtc::ice::udp_network::{EphemeralUDP, UDPNetwork};
 use webrtc::interceptor::registry::Registry as InterceptorRegistry;
-use webrtc::ice::network_type::NetworkType;
 
 use sfu::adapter::WsRoomObserver;
 use sfu::handler::ws_handler;
@@ -190,7 +189,7 @@ fn build_webrtc_api() -> Result<webrtc::api::API, webrtc::Error> {
     // Without this, host candidates advertise 10.x / 172.x (unreachable)
     // and the srflx candidate often fails STUN checks behind cloud NAT.
     if let Ok(ip) = std::env::var("PUBLIC_IP") {
-        setting_engine.set_nat_1to1_ips(vec![ip], webrtc::ice::ice_candidate::RTCIceCandidateType::Host);
+        setting_engine.set_nat_1to1_ips(vec![ip],  );
         println!("🚀 WebRTC NAT 1:1 configuré avec l'IP: {}", std::env::var("PUBLIC_IP").unwrap());
     } else {
         println!("PUBLIC_IP non définie, passage en mode local (LAN)")}
