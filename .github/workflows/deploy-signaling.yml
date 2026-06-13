@@ -122,10 +122,11 @@ jobs:
             echo "=== Déploiement SFU + Monitoring ==="
             mkdir -p ~/Void
             cd ~/Void
-            sudo chown -R ubuntu:ubuntu ~/Void
             rm -rf docker/
             tar -xzvf ~/deploy.tar.gz
             rm ~/deploy.tar.gz
+            sudo chown -R ubuntu:ubuntu ~/Void
+            chmod -R 644 docker/*.yml 2>/dev/null || true
 
             # Création du fichier .env complet et sécurisé
             cat > .env << ENVEOF
