@@ -117,48 +117,52 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          script: |
-            echo "=== Déploiement SFU + Monitoring ==="
-            mkdir -p ~/Void
-            cd ~/Void
-            sudo chown -R ubuntu:ubuntu ~/Void
-            rm -rf docker/
-            tar -xzvf ~/deploy.tar.gz
-            rm ~/deploy.tar.gz
+          # On injecte proprement les secrets sous forme de variables d'environnement pour l'étape SSH
+          envs: DOMAIN,GF_DOMAIN
+        script: |
+          echo "=== Déploiement SFU + Monitoring ==="
+          mkdir -p ~/Void
+          cd ~/Void
+          sudo chown -R ubuntu:ubuntu ~/Void
+          rm -rf docker/
+          tar -xzvf ~/deploy.tar.gz
+          rm ~/deploy.tar.gz
 
-            # Création du fichier .env propre
-            cat > .env << ENVEOF
-            PRIMARY_PIN_HASH="${{ secrets.PRIMARY_PIN_HASH }}"
-            BACKUP_PIN_HASH="${{ secrets.BACKUP_PIN_HASH }}"
-            JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            SMTP_AUTH_PASSWORD="${{ secrets.SMTP_AUTH_PASSWORD }}"
-            SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
-            GF_ADMIN_PASSWORD="${{ secrets.GF_ADMIN_PASSWORD }}"
-            PUBLIC_IP="${{ secrets.PUBLIC_IP }}"
-            ENVEOF
-            chmod 600 .env
+          # Création du fichier .env complet et sécurisé
+          cat > .env << ENVEOF
+          PRIMARY_PIN_HASH="${{ secrets.PRIMARY_PIN_HASH }}"
+          BACKUP_PIN_HASH="${{ secrets.BACKUP_PIN_HASH }}"
+          JWT_SECRET="${{ secrets.JWT_SECRET }}"
+          SMTP_AUTH_PASSWORD="${{ secrets.SMTP_AUTH_PASSWORD }}"
+          SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
+          GF_ADMIN_PASSWORD="${{ secrets.GF_ADMIN_PASSWORD }}"
+          PUBLIC_IP="${{ secrets.PUBLIC_IP }}"
+          DOMAIN="$DOMAIN"
+          GF_DOMAIN="$DOMAIN"
+          ENVEOF
+          chmod 600 .env
 
-            # Patch Alertmanager
-            sed -i "s|REPLACE_SMTP_USER|${{ secrets.SMTP_EMAIL }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_SMTP_PASSWORD|${{ secrets.SMTP_AUTH_PASSWORD }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_SLACK_WEBHOOK|${{ secrets.SLACK_WEBHOOK_URL }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_DOMAIN|${{ secrets.DOMAIN }}|g" docker/alertmanager.yml
+          # Patch Alertmanager
+          sed -i "s|REPLACE_SMTP_USER|${{ secrets.SMTP_EMAIL }}|g" docker/alertmanager.yml
+          sed -i "s|REPLACE_SMTP_PASSWORD|${{ secrets.SMTP_AUTH_PASSWORD }}|g" docker/alertmanager.yml
+          sed -i "s|REPLACE_SLACK_WEBHOOK|${{ secrets.SLACK_WEBHOOK_URL }}|g" docker/alertmanager.yml
+          sed -i "s|REPLACE_DOMAIN|$DOMAIN|g" docker/alertmanager.yml
 
-            sudo docker compose down || true
-            sudo docker compose build --no-cache signaling-server
-            sudo docker compose up -d
+          sudo docker compose down || true
+          sudo docker compose build --no-cache signaling-server
+          sudo docker compose up -d
 
-            echo "Attente de démarrage (30s)..."
-            sleep 30
+          echo "Attente de démarrage (30s)..."
+          sleep 30
 
-            echo "=== Tests de santé ==="
-            # CORRECTION : Changement de https:// à http:// car Nginx n'est pas utilisé en local ici
-            curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || exit 1
-            curl -s http://localhost:9090/-/healthy | grep -q "Healthy" && echo "✅ Prometheus OK" || exit 1
-            curl -s http://localhost:3000/api/health | grep -q "ok" && echo "✅ Grafana OK" || exit 1
-            
-            sudo docker image prune -f
-            echo "🚀 Déploiement terminé avec succès !"
+          echo "=== Tests de santé ==="
+          # Tests de santé bavards avec logs d'erreur explicites
+          curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
+          curl -s --max-time 5 http://localhost:9090/-/healthy | grep -q "Healthy" && echo "✅ Prometheus OK" || { echo "❌ Prometheus FAILED"; exit 1; }
+          curl -s --max-time 5 http://localhost:3000/api/health | grep -q "ok" && echo "✅ Grafana OK" || { echo "❌ Grafana FAILED"; exit 1; }
+          
+          sudo docker image prune -f
+          echo "🚀 Déploiement terminé avec succès !"
 
   notify:
     needs: build-and-deploy
