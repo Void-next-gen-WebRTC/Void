@@ -146,7 +146,7 @@ jobs:
             sed -i "s|REPLACE_SMTP_USER|${{ secrets.SMTP_EMAIL }}|g" docker/alertmanager.yml
             sed -i "s|REPLACE_SMTP_PASSWORD|${{ secrets.SMTP_AUTH_PASSWORD }}|g" docker/alertmanager.yml
             sed -i "s|REPLACE_SLACK_WEBHOOK|${{ secrets.SLACK_WEBHOOK_URL }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_DOMAIN|${{secret.DOMAIN}}|g" docker/alertmanager.yml
+            sed -i "s|REPLACE_DOMAIN|${{secrets.DOMAIN}}|g" docker/alertmanager.yml
 
             sudo docker compose down || true
             sudo docker compose build --no-cache signaling-server
