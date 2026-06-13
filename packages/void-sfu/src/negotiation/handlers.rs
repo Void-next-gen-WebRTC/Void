@@ -120,6 +120,25 @@ pub(crate) async fn handle_offer(
             .await?,
     );
 
+    {
+        let pid = peer_id.clone();
+        pc.on_ice_connection_state_change(Box::new(move |state| {
+            let pid = pid.clone();
+            Box::pin(async move {
+                info!("peer {} ICE state -> {:?}", pid, state);
+            })
+        }));
+    }
+    {
+        let pid = peer_id.clone();
+        pc.on_peer_connection_state_change(Box::new(move |state| {
+            let pid = pid.clone();
+            Box::pin(async move {
+                info!("peer {} PC state -> {:?}", pid, state);
+            })
+        }));
+    }
+
     install_ice_relay(&pc, &peer_entry);
     install_on_track(&pc, Arc::clone(&inner), peer_id.clone(), room_id.clone());
     install_on_data_channel(&pc, Arc::clone(&inner), peer_id.clone(), room_id.clone());
