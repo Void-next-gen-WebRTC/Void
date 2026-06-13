@@ -18,6 +18,43 @@ export function useSfuConnection({
     setRemoteVideoStreams, setChatMessages, setBandwidthStats, setError,
 }: UseSfuConnectionProps) {
 
+    const rememberTrackMap = (key: string | undefined | null, userId: string) => {
+        if (!key) return;
+        trackToUserMapRef.current.set(key, userId);
+    };
+
+    const rememberPendingTrackMap = (key: string | undefined | null, userId: string, kind: string) => {
+        if (!key) return;
+        pendingTrackMapsRef.current.set(key, { userId, kind });
+    };
+
+    const deletePendingTrackMap = (key: string | undefined | null) => {
+        if (!key) return;
+        pendingTrackMapsRef.current.delete(key);
+    };
+
+    const rememberOrphanStream = (key: string | undefined | null, stream: MediaStream, kind: string) => {
+        if (!key) return;
+        orphanStreamsRef.current.set(key, { stream, kind });
+    };
+
+    const deleteOrphanStream = (key: string | undefined | null) => {
+        if (!key) return;
+        orphanStreamsRef.current.delete(key);
+    };
+
+    const findUniquePendingByKind = (kind: string) => {
+        const matches = Array.from(pendingTrackMapsRef.current.values()).filter((entry) => entry.kind === kind);
+        if (matches.length !== 1) return null;
+        return matches[0];
+    };
+
+    const findUniqueOrphanByKind = (kind: string) => {
+        const matches = Array.from(orphanStreamsRef.current.values()).filter((entry) => entry.kind === kind);
+        if (matches.length !== 1) return null;
+        return matches[0];
+    };
+
     const sfuConnectionRef = useRef<RTCPeerConnection | null>(null);
     const screenStreamRef = useRef<MediaStream | null>(null);
     const trackToUserMapRef = useRef<Map<string, string>>(new Map());
@@ -51,7 +88,7 @@ export function useSfuConnection({
             videoTrack.onended = () => removeScreenTrack();
             if (sfuConnectionRef.current) {
                 // Use addTransceiver for consistency with audio tracks.
-                sfuConnectionRef.current.addTransceiver(videoTrack, { direction: 'sendonly' });
+                sfuConnectionRef.current.addTransceiver(videoTrack, { direction: 'sendonly', streams: [stream] });
             }
         }
     }, [removeScreenTrack]);
@@ -90,10 +127,10 @@ export function useSfuConnection({
         console.log('[VOICE] connectSFU local audio tracks:', local.getAudioTracks().length);
         // Use addTransceiver instead of addTrack for more reliable track lifecycle.
         // Explicit direction ensures tracks persist through renegotiations.
-        local.getAudioTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv' }));
+        local.getAudioTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv', streams: [local] }));
 
         const screen = screenStreamRef.current;
-        if (screen) screen.getVideoTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv' }));
+        if (screen) screen.getVideoTracks().forEach(t => pc.addTransceiver(t, { direction: 'sendrecv', streams: [screen] }));
 
         // Log track status before proceeding
         console.log('[VOICE] connectSFU tracks added:', {
@@ -125,20 +162,20 @@ export function useSfuConnection({
             // No mapping yet — check pending track-maps
             const _pendingByTrack = pendingTrackMapsRef.current.get(track.id);
             const _pendingByStream = pendingTrackMapsRef.current.get(stream.id);
-            const _pending = _pendingByTrack ?? _pendingByStream;
+            const _pending = _pendingByTrack ?? _pendingByStream ?? findUniquePendingByKind(track.kind);
             if (_pending) {
-                trackToUserMapRef.current.set(track.id, _pending.userId);
-                trackToUserMapRef.current.set(stream.id, _pending.userId);
+                rememberTrackMap(track.id, _pending.userId);
+                rememberTrackMap(stream.id, _pending.userId);
                 if (track.kind === 'audio') setRemoteStreams(r => new Map(r).set(_pending.userId, stream));
                 else if (track.kind === 'video') setRemoteVideoStreams(r => new Map(r).set(_pending.userId, stream));
-                pendingTrackMapsRef.current.delete(track.id);
-                pendingTrackMapsRef.current.delete(stream.id);
+                deletePendingTrackMap(track.id);
+                deletePendingTrackMap(stream.id);
                 return;
             }
 
             // Buffer as orphan — the track-map will resolve it shortly
-            orphanStreamsRef.current.set(track.id, { stream, kind: track.kind });
-            orphanStreamsRef.current.set(stream.id, { stream, kind: track.kind });
+            rememberOrphanStream(track.id, stream, track.kind);
+            rememberOrphanStream(stream.id, stream, track.kind);
         };
 
         // Perfect-negotiation: drive (re)negotiation through a single guarded path.
@@ -208,12 +245,13 @@ export function useSfuConnection({
                     break;
                 case 'track-map': {
                     console.log('[VOICE] track-map:', { trackId: msg.trackId, streamId: msg.streamId, userId: msg.userId, kind: msg.kind });
-                    trackToUserMapRef.current.set(msg.trackId, msg.userId);
-                    trackToUserMapRef.current.set(msg.streamId, msg.userId);
+                    rememberTrackMap(msg.trackId, msg.userId);
+                    rememberTrackMap(msg.streamId, msg.userId);
 
                     // Resolve any orphan stream that arrived before this mapping
                     const _orphan = orphanStreamsRef.current.get(msg.trackId)
-                        ?? orphanStreamsRef.current.get(msg.streamId);
+                        ?? orphanStreamsRef.current.get(msg.streamId)
+                        ?? findUniqueOrphanByKind(msg.kind);
                     if (_orphan) {
                         console.log('[VOICE] track-map resolving orphan:', { userId: msg.userId, kind: _orphan.kind });
                         if (_orphan.kind === 'audio') {
@@ -221,13 +259,13 @@ export function useSfuConnection({
                         } else if (_orphan.kind === 'video') {
                             setRemoteVideoStreams(r => new Map(r).set(msg.userId, _orphan.stream));
                         }
-                        orphanStreamsRef.current.delete(msg.trackId);
-                        orphanStreamsRef.current.delete(msg.streamId);
+                        deleteOrphanStream(msg.trackId);
+                        deleteOrphanStream(msg.streamId);
                     } else {
                         // Buffer the mapping for an `ontrack` that hasn't fired yet
                         console.log('[VOICE] track-map buffering for future ontrack');
-                        pendingTrackMapsRef.current.set(msg.trackId, { userId: msg.userId, kind: msg.kind });
-                        pendingTrackMapsRef.current.set(msg.streamId, { userId: msg.userId, kind: msg.kind });
+                        rememberPendingTrackMap(msg.trackId, msg.userId, msg.kind);
+                        rememberPendingTrackMap(msg.streamId, msg.userId, msg.kind);
                     }
 
                     // Migrate any state entry keyed by streamId / trackId to userId

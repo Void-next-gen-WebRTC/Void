@@ -54,6 +54,9 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
       - GF_PROVISIONING_ENABLED=true
+      - GF-SERVER_DOMAIN=${GF_DOMAIN}
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   alertmanager:
     image: prom/alertmanager:v0.26.0
