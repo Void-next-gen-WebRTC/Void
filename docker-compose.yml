@@ -9,6 +9,7 @@ services:
     image: signaling-server
     container_name: signaling-live
     network_mode: "host"
+    privileged: true
     restart: always
     volumes:
       - /home/ubuntu/secrets/primary.pem:/app/cert.pem:ro
