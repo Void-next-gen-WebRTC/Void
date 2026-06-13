@@ -91,15 +91,19 @@ jobs:
         run: |
           mkdir -p deploy-package/docker/grafana/provisioning/datasources
           mkdir -p deploy-package/docker/grafana/provisioning/dashboards
+
           cp target/${{ env.TARGET_PLATFORM }}/release/signaling-server deploy-package/
           cp Dockerfile deploy-package/
           cp docker-compose.yml deploy-package/
-          find . -name "prometheus.yml" -exec cp {} deploy-package/docker/ \;
-          find . -name "alert_rules.yml" -exec cp {} deploy-package/docker/ \;
-          find . -name "alertmanager.yml" -exec cp {} deploy-package/docker/ \;
-          find . -name "datasources.yml" -exec cp {} deploy-package/docker/grafana/provisioning/datasources/ \;
-          find . -name "dashboard.yml" -exec cp {} deploy-package/docker/grafana/provisioning/dashboards/ \;
-          find . -name "sfu-dashboard.json" -exec cp {} deploy-package/docker/grafana/provisioning/dashboards/ \;
+
+          cp docker/prometheus.yml deploy-package/docker/
+          cp docker/alert_rules.yml deploy-package/docker/
+          cp docker/alertmanager.yml deploy-package/docker/
+
+          cp docker/grafana/provisioning/datasources/datasources.yml deploy-package/docker/grafana/provisioning/datasources/
+          cp docker/grafana/provisioning/dashboards/dashboard.yml deploy-package/docker/grafana/provisioning/dashboards/
+          cp docker/grafana/provisioning/dashboards/sfu-dashboard.json deploy-package/docker/grafana/provisioning/dashboards/
+
           tar -czvf deploy.tar.gz -C deploy-package .
 
       - name: Copy to Oracle VM
