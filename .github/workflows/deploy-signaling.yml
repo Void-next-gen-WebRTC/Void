@@ -136,8 +136,8 @@ jobs:
             SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
             GF_ADMIN_PASSWORD="${{ secrets.GF_ADMIN_PASSWORD }}"
             PUBLIC_IP="${{ secrets.PUBLIC_IP }}"
-            DOMAIN="$DOMAIN"
-            GF_DOMAIN="$DOMAIN"
+            GF_DOMAIN="${{secrets.DOMAIN}}"
+            DOMAIN="${{secrets.DOMAIN}}"
             ENVEOF
             chmod 600 .env
 
