@@ -28,11 +28,21 @@ use super::tracks::install_on_track;
 
 /// Builds the [`RTCConfiguration`] for a new PC from the SFU config.
 pub(super) fn build_rtc_config(ice_servers: &[String]) -> RTCConfiguration {
-    RTCConfiguration {
-        ice_servers: vec![RTCIceServer {
+    // Si PUBLIC_IP est définie, on est sur le cloud (Oracle).
+    // Le SFU n'a pas besoin de STUN pour lui-même car on utilise set_nat_1to1_ips.
+    let final_ice_servers = if std::env::var("PUBLIC_IP").is_ok() {
+        println!("ℹ️ [SFU-CONFIG] IP publique détectée : désactivation des serveurs STUN/TURN pour le SFU.");
+        vec![] // On laisse la liste VIDE pour le serveur
+    } else {
+        // En mode local/LAN, on garde la config d'origine si nécessaire
+        vec![RTCIceServer {
             urls: ice_servers.to_vec(),
             ..Default::default()
-        }],
+        }]
+    };
+
+    RTCConfiguration {
+        ice_servers: final_ice_servers,
         ..Default::default()
     }
 }
