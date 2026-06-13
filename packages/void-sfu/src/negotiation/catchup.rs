@@ -74,7 +74,16 @@ pub(super) async fn catchup_existing_tracks(
         .dc_forwarders
         .iter()
         .any(|kv| kv.value().source_peer != peer_id);
+
+    info!(
+        "catchup_existing_tracks peer={} found {} forwarders, has_dc={}",
+        peer_id,
+        items.len(),
+        has_dc_to_catch
+    );
+
     if items.is_empty() && !has_dc_to_catch {
+        warn!("catchup: no forwarders to attach for peer={} in room={}", peer_id, room_id);
         return Ok(());
     }
 
