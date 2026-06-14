@@ -18,7 +18,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{Extension, Router, routing::get};
-use axum_server::tls_rustls::RustlsConfig;
 use rustls::crypto::aws_lc_rs;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
@@ -29,7 +28,8 @@ use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
 use webrtc::ice::candidate::CandidateType;
-use webrtc::ice::udp_network::{EphemeralUDP, UDPNetwork};
+use webrtc::ice::udp_mux::{UDPMuxDefault, UDPMuxParams};
+use webrtc::ice::udp_network::UDPNetwork;
 use webrtc::interceptor::registry::Registry as InterceptorRegistry;
 
 use sfu::adapter::WsRoomObserver;
@@ -56,7 +56,7 @@ async fn main() {
     tracing_subscriber::fmt::init();
     metrics::init_uptime();
 
-    let api = match build_webrtc_api() {
+    let api = match build_webrtc_api().await {
         Ok(a) => a,
         Err(e) => {
             eprintln!("Failed to build WebRTC API: {:?}", e);
@@ -152,9 +152,10 @@ async fn main() {
         // En PROD, Nginx (port 443) réceptionne le HTTPS et le "traduit" en HTTP
         // vers notre port 3001.
         println!(
-            "🚀 SFU Server running on http://{} | Mode: {} | UDP: 10000-20000",
+            "🚀 SFU Server running on http://{} | Mode: {} | ICE UDP: port {}",
             addr,
-            if is_dev { "DEVELOPMENT" } else { "PRODUCTION" }
+            if is_dev { "DEVELOPMENT" } else { "PRODUCTION" },
+            std::env::var("ICE_UDP_PORT").unwrap_or_else(|_| "10000".into()),
         );
 
         let listener = match tokio::net::TcpListener::bind(addr).await {
@@ -177,16 +178,46 @@ async fn main() {
     }
 
 /// Builds a webrtc-rs `API` with default codecs, default interceptors,
-/// and an ephemeral UDP port range of 10000..=20000.
-fn build_webrtc_api() -> Result<webrtc::api::API, webrtc::Error> {
+/// and a single UDP mux bound to `0.0.0.0:ICE_UDP_PORT` (default: 10000).
+///
+/// Using a [`UDPMuxDefault`] instead of [`EphemeralUDP`] is critical on
+/// cloud hosts (Oracle Cloud, AWS, etc.) where the Docker daemon creates
+/// bridge interfaces (`docker0`, `172.17.0.0/16`) alongside the real NIC.
+/// `EphemeralUDP` allocates sockets on *every* interface; with `nat_1to1_ips`
+/// those Docker-bound sockets are advertised as reachable host candidates but
+/// are unreachable via the cloud's 1:1 NAT, causing ICE to fail for peers
+/// whose STUN reflexive path happens to be paired against a Docker port.
+///
+/// `UDPMuxDefault` binds a single socket to `0.0.0.0`, demultiplexing
+/// simultaneous peer connections via STUN username fragments. Every packet
+/// arrives and leaves through the real NIC, making Oracle NAT work correctly
+/// for all candidates.
+async fn build_webrtc_api() -> Result<webrtc::api::API, Box<dyn std::error::Error>> {
     let mut m = MediaEngine::default();
     m.register_default_codecs()?;
 
     let mut setting_engine = SettingEngine::default();
-    let ephemeral_udp = EphemeralUDP::new(10000, 20000)?;
-    setting_engine.set_udp_network(UDPNetwork::Ephemeral(ephemeral_udp));
 
-    // Exclude virtual/bridge interfaces from host ICE candidate gathering.
+    // Bind a single UDP socket to 0.0.0.0. This prevents ICE sockets from
+    // being allocated on Docker bridge IPs (172.17.x.x) which are unreachable
+    // via Oracle Cloud's 1:1 NAT. The UDPMuxDefault demultiplexes multiple
+    // simultaneous peer connections by STUN ufrag on this one socket.
+    let udp_port: u16 = std::env::var("ICE_UDP_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(10000);
+    let listen_addr = format!("0.0.0.0:{}", udp_port);
+    let udp_socket = tokio::net::UdpSocket::bind(&listen_addr)
+            .await
+            .map_err(|e| format!("Failed to bind ICE UDP socket on {listen_addr}: {e}"))?;
+    // UDPMuxDefault::new already returns Arc<Self>; no extra Arc::new wrapper needed.
+    let udp_mux = UDPMuxDefault::new(UDPMuxParams::new(udp_socket));
+    setting_engine.set_udp_network(UDPNetwork::Muxed(udp_mux));
+    println!("🔊 ICE UDP mux listening on {}", listen_addr);
+
+    // Interface filter: kept for defence-in-depth on candidate advertisement.
+    // With UDPMux the sockets are already on 0.0.0.0, so this mainly guards
+    // against advertising Docker IPs as host candidates in non-NAT-1:1 mode.
     let deny_prefixes = parse_csv_env(
         "ICE_INTERFACE_DENY",
         "lo,docker,br-,veth,virbr,vmnet,cni,flannel",
@@ -197,8 +228,8 @@ fn build_webrtc_api() -> Result<webrtc::api::API, webrtc::Error> {
     }));
 
     // Oracle Cloud (and most IaaS) assigns a public IP via 1:1 NAT.
-    // Without this, host candidates advertise 10.x / 172.x (unreachable)
-    // and the srflx candidate often fails STUN checks behind cloud NAT.
+    // Without this, host candidates advertise 10.x (unreachable) and the
+    // srflx candidate often fails STUN checks behind cloud NAT.
     if let Ok(ip) = std::env::var("PUBLIC_IP") {
         let trimmed = ip.trim();
         if trimmed.parse::<IpAddr>().is_ok() {

@@ -19,6 +19,11 @@ services:
       - RUST_LOG=info
       - JWT_SECRET=${JWT_SECRET}
       - PUBLIC_IP=${PUBLIC_IP}
+      # Fixed UDP port for the ICE UDPMux. A single socket on 0.0.0.0 prevents
+      # sockets from being allocated on Docker bridge IPs (172.17.x.x) which
+      # are unreachable via Oracle Cloud 1:1 NAT and would cause ICE failure
+      # for peers behind Docker Desktop / WSL2 on Windows.
+      - ICE_UDP_PORT=${ICE_UDP_PORT:-10000}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 30s

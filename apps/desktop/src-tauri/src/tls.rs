@@ -39,14 +39,29 @@ impl ServerCertVerifier for PinningVerifier {
         &self,
         end_entity: &CertificateDer<'_>,
         _intermediates: &[CertificateDer<'_>],
-        _server_name: &ServerName<'_>,
+        server_name: &ServerName<'_>,
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
 
-        // --- EXTRACTION DE LA CLÉ PUBLIQUE (SPKI) ---
-        // On parse le certificat pour extraire uniquement la partie Public Key Info
-        // afin de correspondre au hash généré par OpenSSL.
+        // 1. Extraire le nom de domaine de la requête sous forme de chaîne de caractères
+        let hostname = match server_name {
+            ServerName::DnsName(dns) => dns.as_ref().to_string(),
+            ServerName::IpAddress(ip) => format!("{}", ip),
+            _ => "".to_string(),
+        };
+
+        // 2. FILTRE : Si la requête va vers un service externe (ex: GitHub pour l'updater),
+        // on bypass le pinning strict et on valide directement le certificat.
+        if !hostname.contains("api.voidsfu.com") && !hostname.contains("89.168.59.45") {
+            #[cfg(debug_assertions)]
+            println!("ℹ️ [TLS Pinning] Bypass pour le domaine externe : {}", hostname);
+
+            // On accepte le certificat car il s'agit d'un tiers de confiance (ex: GitHub)
+            return Ok(ServerCertVerified::assertion());
+        }
+
+        // 3. SECURITÉ STRICTE : Si c'est ton infrastructure, on applique le certificat pinning
         let cert = x509_parser::parse_x509_certificate(end_entity.as_ref())
             .map_err(|_| Error::InvalidCertificate(rustls::CertificateError::BadEncoding))?;
 
@@ -56,9 +71,8 @@ impl ServerCertVerifier for PinningVerifier {
         hasher.update(spki_bytes);
         let cert_hash = general_purpose::STANDARD.encode(hasher.finalize());
 
-        // Debug : utile pour voir le hash dans la console Tauri si ça rejette encore
         #[cfg(debug_assertions)]
-        println!("🔒 [TLS Pinning] Hash calculé: {}", cert_hash);
+        println!("🔒 [TLS Pinning] Interception de {}. Hash calculé: {}", hostname, cert_hash);
 
         if is_dev_build() || cfg!(test) {
             return Ok(ServerCertVerified::assertion());
@@ -67,8 +81,7 @@ impl ServerCertVerifier for PinningVerifier {
         if cert_hash == PRIMARY_PIN || cert_hash == BACKUP_PIN {
             Ok(ServerCertVerified::assertion())
         } else {
-            // Log l'erreur pour savoir quel hash a été reçu en prod
-            eprintln!("❌ [TLS Pinning] ÉCHEC ! Attendu: {}, Reçu: {}", PRIMARY_PIN, cert_hash);
+            eprintln!("❌ [TLS Pinning] ÉCHEC sur {} ! Attendu: {}, Reçu: {}", hostname, PRIMARY_PIN, cert_hash);
             Err(Error::InvalidCertificate(
                 rustls::CertificateError::UnknownIssuer,
             ))
@@ -93,7 +106,6 @@ impl ServerCertVerifier for PinningVerifier {
         Ok(HandshakeSignatureValid::assertion())
     }
 
-    /// Advertises all common schemes so the server always finds a match.
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         vec![
             SignatureScheme::RSA_PKCS1_SHA256,

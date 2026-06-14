@@ -141,6 +141,7 @@ jobs:
             SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
             GF_ADMIN_PASSWORD="${{ secrets.GF_ADMIN_PASSWORD }}"
             PUBLIC_IP="${{ secrets.PUBLIC_IP }}"
+            ICE_UDP_PORT=10000
             GF_DOMAIN="${{secrets.DOMAIN}}"
             DOMAIN="${{secrets.DOMAIN}}"
             ENVEOF
