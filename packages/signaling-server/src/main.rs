@@ -165,7 +165,6 @@ async fn main() {
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(e) => {
-
             eprintln!("Bind failed: {:?}", e);
             std::process::exit(1);
         }
