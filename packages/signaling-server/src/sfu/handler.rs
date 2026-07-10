@@ -1,10 +1,10 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Extension;
-use axum::extract::ConnectInfo;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
+use axum::extract::ConnectInfo;
 use axum::response::IntoResponse;
+use axum::Extension;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
@@ -15,7 +15,7 @@ use super::broadcast::{broadcast_to_channel, remove_peer, serialize_message};
 use super::handler_helpers::{handle_authenticate, handle_dm_send};
 use super::models::{ClientMessage, PeerInfo, ServerMessage};
 use super::rpc as ws_rpc;
-use super::state::{AppState, CHAT_HISTORY_CAP, ChatEntry, PeerSession, WS_CHANNEL_CAPACITY};
+use super::state::{AppState, ChatEntry, PeerSession, CHAT_HISTORY_CAP, WS_CHANNEL_CAPACITY};
 use super::subscriptions::{push_to_channel_subscribers, push_to_server_subscribers};
 use crate::fraud::FraudState;
 use crate::metrics::WS_QUEUE_DROPPED;

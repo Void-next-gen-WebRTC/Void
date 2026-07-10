@@ -21,7 +21,7 @@ use uuid::Uuid;
 
 use super::broadcast::notify_user;
 use super::models::ServerMessage;
-use super::state::{AppState, DM_HISTORY_CAP, DmEntry, DmPairKey};
+use super::state::{AppState, DmEntry, DmPairKey, DM_HISTORY_CAP};
 use crate::errors::ApiError;
 use crate::models::UserSummary;
 

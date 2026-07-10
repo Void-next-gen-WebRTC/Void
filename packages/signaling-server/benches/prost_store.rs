@@ -13,7 +13,7 @@
 //! cargo bench -p signaling-server --bench prost_store
 //! ```
 
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use prost::Message;
 
 use signaling_server::fraud::store::{BanRecord, BanSnapshot, FingerprintRecord, RecidivismRecord};

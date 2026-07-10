@@ -1,7 +1,7 @@
 use std::sync::LazyLock;
 
 use crate::models::Claims;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
 /// JWT secret cached at process start — avoids env-var lookup + heap allocation per call.
 /// Panics in production if JWT_SECRET is not set or empty.

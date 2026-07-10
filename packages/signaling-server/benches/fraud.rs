@@ -12,7 +12,7 @@
 //! cargo bench -p signaling-server --bench fraud
 //! ```
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::NamedTempFile;
 
 use signaling_server::fraud::detector::FraudDetector;

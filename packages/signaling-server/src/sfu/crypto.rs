@@ -1,4 +1,4 @@
-use base64::{Engine as _, engine::general_purpose};
+use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{Signature, VerifyingKey};
 
 /// Verifies an Ed25519 signature against a public key and message.

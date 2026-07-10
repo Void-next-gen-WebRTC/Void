@@ -13,8 +13,8 @@
 //! ```
 
 use axum::body::Bytes;
-use axum::http::{HeaderMap, header};
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use axum::http::{header, HeaderMap};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use prost::Message;
 
 use signaling_server::models::{

@@ -18,11 +18,11 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tracing::{debug, info, warn};
 use webrtc::rtp::packet::Packet;
-use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
-use webrtc::track::track_local::TrackLocal;
+use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
+use webrtc::track::track_local::TrackLocal;
 
 use crate::forwarder::ForwarderState;
 use crate::id::{MediaSourceId, PeerId, RoomId};
@@ -55,12 +55,7 @@ pub(super) fn install_on_track(
 
             info!(
                 "on_track source={} room={} track_id={} stream_id={} kind={} ssrc={}",
-                source_peer,
-                room_id,
-                track_id,
-                stream_id,
-                kind,
-                ssrc
+                source_peer, room_id, track_id, stream_id, kind, ssrc
             );
 
             let (tx_track, rx_track) = mpsc::channel::<Packet>(inner.config.rtp_channel_capacity);
@@ -200,10 +195,7 @@ async fn attach_destinations_to_existing_members(
 
         info!(
             "destination attached source={} -> member={} track_id={} stream_id={}",
-            source_peer,
-            member,
-            track_id,
-            stream_id
+            source_peer, member, track_id, stream_id
         );
 
         // Renegotiate with the existing member.

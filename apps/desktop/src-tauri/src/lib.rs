@@ -46,7 +46,8 @@ pub fn run() {
     // when it spawns. Multi-flag friendly: prepends to any existing value.
     #[cfg(target_os = "windows")]
     {
-        const MEDIA_FLAGS: &str = "--use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required";
+        const MEDIA_FLAGS: &str =
+            "--use-fake-ui-for-media-stream --autoplay-policy=no-user-gesture-required";
         let merged = match std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
             Ok(existing) if !existing.is_empty() => format!("{MEDIA_FLAGS} {existing}"),
             _ => MEDIA_FLAGS.to_string(),

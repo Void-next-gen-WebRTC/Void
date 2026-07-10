@@ -4,12 +4,12 @@ pub mod store;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde_json::json;
 
 use self::store::BanStore;
@@ -47,7 +47,7 @@ pub async fn ip_guard(
 // ---------------------------------------------------------------------------
 
 use once_cell::sync::Lazy;
-use prometheus::{IntCounter, IntCounterVec, register_int_counter, register_int_counter_vec};
+use prometheus::{register_int_counter, register_int_counter_vec, IntCounter, IntCounterVec};
 
 pub static BANNED_IPS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
     register_int_counter!("fraud_ip_banned_total", "Total IPs banned for fraud").unwrap()

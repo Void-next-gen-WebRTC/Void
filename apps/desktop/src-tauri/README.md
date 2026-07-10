@@ -126,6 +126,8 @@ sequenceDiagram
 
 Hashes are injected at compile time via the `PRIMARY_PIN_HASH` / `BACKUP_PIN_HASH` env variables. When neither is set, the build is flagged via `tls::is_dev_build()` and accepts any cert (development only).
 
+> When `api.voidsfu.com` is fronted by Nginx or another reverse proxy, the pin must match the **edge certificate actually presented to Tauri**. Rotating the proxy certificate or moving TLS termination from the Rust backend to Nginx requires regenerating the SPKI pins, otherwise the desktop app will reject `/api/auth/nonce` and other first-party calls.
+
 ---
 
 ## File layout
@@ -245,6 +247,8 @@ La persistance disque est **debouncée** : un flux rapide de drag est agglomér�
 ## Pinning TLS
 
 Les empreintes SPKI sont injectées à la compilation via les variables `PRIMARY_PIN_HASH` / `BACKUP_PIN_HASH`. Quand aucune n'est définie, le build est marqué via `tls::is_dev_build()` et accepte n'importe quel certificat (dev uniquement).
+
+> Si `api.voidsfu.com` passe désormais derrière Nginx ou un autre reverse proxy, l'empreinte à pinner est celle du **certificat edge réellement présenté à Tauri**. Une rotation du certificat proxy ou un déplacement de la terminaison TLS du backend Rust vers Nginx impose donc de régénérer les pins SPKI, sinon l'application desktop rejettera `/api/auth/nonce` et les autres appels first-party.
 
 ```bash
 PRIMARY_PIN_HASH=<base64-spki-hash> \

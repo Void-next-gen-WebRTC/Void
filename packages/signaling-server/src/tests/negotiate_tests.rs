@@ -1,10 +1,10 @@
 use axum::body::Bytes;
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::{header, HeaderMap, HeaderValue};
 use prost::Message;
 
 use crate::models::RegisterBody;
 use crate::models::{StatusResponse, UserSummary, UserSummaryList};
-use crate::negotiate::{Negotiated, accepts_proto, decode_body, negotiate, negotiate_list};
+use crate::negotiate::{accepts_proto, decode_body, negotiate, negotiate_list, Negotiated};
 
 // ---------------------------------------------------------------------------
 // 1. accepts_proto with application/x-protobuf header

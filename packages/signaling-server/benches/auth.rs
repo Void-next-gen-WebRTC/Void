@@ -17,8 +17,8 @@
 //! - JWT signing and verification (`HS256`).
 //! - Ed25519 signature verification — the actual login/register hot path.
 
-use base64::{Engine as _, engine::general_purpose};
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use base64::{engine::general_purpose, Engine as _};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use ed25519_dalek::{Signer, SigningKey};
 use rand::rngs::OsRng;
 

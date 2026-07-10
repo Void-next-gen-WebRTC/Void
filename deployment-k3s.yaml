@@ -1,0 +1,1267 @@
+# Copyright (c) 2024 Void — Business Source License 1.1
+# See LICENSE file for full terms. Production use requires a commercial license.
+#
+# ============================================================
+#  Void — k3s Deployment Manifest
+#  Target: Oracle Ampere A1 (ARM64/aarch64) running k3s
+#  Mirrors the existing docker-compose.yml topology
+# ============================================================
+#
+# --- PRE-FLIGHT CHECKLIST ---
+# Secrets are mapped 1-to-1 from GitHub Actions secrets (deploy-signaling.yml).
+# PRIMARY_PIN_HASH / BACKUP_PIN_HASH are BUILD-TIME Rust env vars — already baked
+# into the binary at compile time (CI: cargo build env). They are NOT needed at runtime.
+#
+# TLS — Traefik replaces Nginx. Certs are managed by cert-manager (Let's Encrypt).
+#   The Secret 'void-tls-certs' is auto-populated by cert-manager; no manual creation needed.
+#   Install cert-manager once on the cluster before applying this manifest:
+#     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#     kubectl wait --for=condition=Available -n cert-manager deploy --all --timeout=120s
+#
+# 1. Signaling server runtime secrets (→ secrets.JWT_SECRET, secrets.PUBLIC_IP):
+#    kubectl create secret generic void-signaling-secrets \
+#      --from-literal=JWT_SECRET='<secrets.JWT_SECRET>' \
+#      --from-literal=PUBLIC_IP='<secrets.PUBLIC_IP>' \
+#      -n void
+#
+# 2. Grafana admin (→ secrets.GF_ADMIN_PASSWORD):
+#    kubectl create secret generic grafana-secrets \
+#      --from-literal=GF_SECURITY_ADMIN_PASSWORD='<secrets.GF_ADMIN_PASSWORD>' \
+#      -n void
+#
+# 3. Alertmanager credentials (→ secrets.SMTP_EMAIL, SMTP_AUTH_PASSWORD,
+#    SLACK_WEBHOOK_URL, DOMAIN). An initContainer performs the same sed-substitution
+#    as the deploy-signaling.yml CI script:
+#    kubectl create secret generic alertmanager-secrets \
+#      --from-literal=SMTP_EMAIL='<secrets.SMTP_EMAIL>' \
+#      --from-literal=SMTP_AUTH_PASSWORD='<secrets.SMTP_AUTH_PASSWORD>' \
+#      --from-literal=SLACK_WEBHOOK_URL='<secrets.SLACK_WEBHOOK_URL>' \
+#      --from-literal=DOMAIN='<secrets.DOMAIN>' \
+#      -n void
+#
+# 4. Grafana dashboard ConfigMap (sfu-dashboard.json):
+#    kubectl create configmap grafana-dashboards-json \
+#      --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
+#      -n void
+#
+# 5. GitHub secret KUBE_CONFIG (base64-encoded k3s kubeconfig — one-time setup):
+#    On the Oracle VM:
+#      sudo cat /etc/rancher/k3s/k3s.yaml \
+#        | sed 's/127.0.0.1/<secrets.ORACLE_HOST>/g' \
+#        | base64 -w0
+#    Then add the output as GitHub secret: KUBE_CONFIG
+#
+# 6. Apply:  CI runs envsubst < deployment-k3s.yaml | kubectl apply -f -
+#            Variables substituted: ${DOMAIN}, ${SIGNALING_IMAGE}
+#
+# --- DOMAIN ---
+# <YOUR_DOMAIN> and <YOUR_EMAIL> replaced by ${DOMAIN} (→ secrets.DOMAIN in CI)
+# ============================================================
+
+---
+# ============================================================
+# Namespace
+# ============================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: void
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    project: void
+
+---
+# ============================================================
+# cert-manager — Let's Encrypt ClusterIssuer
+#
+# Traefik replaces Nginx as the TLS termination point.
+# cert-manager handles certificate lifecycle (issuance + renewal)
+# via the ACME HTTP-01 challenge, same domain as before.
+#
+# Prerequisites: cert-manager must be installed on the cluster:
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
+#   kubectl wait --for=condition=Available -n cert-manager deploy --all --timeout=120s
+# ============================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Let's Encrypt production ACME server
+    server: https://acme-v02.api.letsencrypt.org/directory
+    # Replace with your actual email address for expiry notifications
+    email: raphael.taibi@voidsfu.io
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            # k3s built-in Traefik handles the ACME HTTP-01 challenge
+            class: traefik
+
+---
+# ============================================================
+# cert-manager — Certificate
+#
+# Auto-populates the Secret 'void-tls-certs' with:
+#   tls.crt  (full certificate chain)
+#   tls.key  (private key)
+#
+# The signaling-server DaemonSet mounts these keys via subPath
+# aliases to /app/cert.pem and /app/key.pem, preserving the
+# original Rust server expectations without any code change.
+#
+# Replaces the former manual: /home/ubuntu/secrets/primary.pem
+# ============================================================
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: void-tls
+  namespace: void
+spec:
+  secretName: void-tls-certs
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: ${DOMAIN}
+  dnsNames:
+    - ${DOMAIN}
+  # Renew 30 days before expiry (Let's Encrypt 90-day certs)
+  renewBefore: 720h
+
+---
+# ============================================================
+# ConfigMap — Prometheus
+# Scrape targets use in-cluster DNS (service.namespace:port).
+# The signaling-server uses hostNetwork so its ClusterIP service
+# still resolves correctly within the cluster.
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: void
+  labels:
+    app.kubernetes.io/part-of: void-monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 10s
+      evaluation_interval: 10s
+      external_labels:
+        monitor: 'void-sfu'
+        environment: 'production'
+        server: 'oracle-k3s'
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets:
+                - 'alertmanager.void.svc.cluster.local:9093'
+
+    rule_files:
+      - /etc/prometheus/alert_rules.yml
+
+    scrape_configs:
+      - job_name: 'signaling-server'
+        scheme: 'http'
+        static_configs:
+          - targets: ['signaling-server.void.svc.cluster.local:3001']
+        metrics_path: '/metrics'
+        scrape_interval: 5s
+
+      - job_name: 'prometheus'
+        static_configs:
+          - targets: ['localhost:9090']
+
+      - job_name: 'alertmanager'
+        static_configs:
+          - targets: ['alertmanager.void.svc.cluster.local:9093']
+
+      - job_name: 'node-exporter'
+        static_configs:
+          - targets: ['node-exporter.void.svc.cluster.local:9100']
+
+  alert_rules.yml: |
+    groups:
+      - name: sfu_alerts
+        rules:
+          - alert: HighPeerCount
+            expr: sfu_active_peers > 100
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High connected peer count"
+              description: "Connected peers: {{ $value }} (threshold: 100)"
+
+          - alert: HighBandwidthUsage
+            expr: sfu_bandwidth_egress_bps > 50000000
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High egress bandwidth"
+              description: "Egress bandwidth: {{ $value }} bps (threshold: 50 Mbps)"
+
+          - alert: HighPacketRate
+            expr: sfu_packets_per_second > 10000
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High packet rate"
+              description: "Packet rate: {{ $value }} packets/s (threshold: 10000)"
+
+          - alert: HighChannelCount
+            expr: sfu_active_channels > 50
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High active channel count"
+              description: "Active channels: {{ $value }} (threshold: 50)"
+
+          - alert: BackendDown
+            expr: up{job="signaling-server"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Signaling server unreachable"
+              description: "signaling-server has been down for more than 1 minute"
+
+          - alert: FraudIPBanned
+            expr: increase(fraud_ip_banned_total[5m]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Fraud: IP banned"
+              description: "{{ $value }} IP(s) banned in the last 5 minutes"
+
+          - alert: HighFraudAttempts
+            expr: rate(fraud_attempts_total[5m]) > 1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High fraud attempt rate"
+              description: "Fraud attempts: {{ $value }}/s (type: {{ $labels.type }})"
+
+          - alert: HighBlockedRequests
+            expr: rate(fraud_blocked_requests_total[5m]) > 10
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High rate of blocked requests"
+              description: "{{ $value }} blocked requests/s — potential ongoing attack"
+
+          - alert: PermanentBanEscalation
+            expr: increase(fraud_permanent_bans_total[1h]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Permanent ban escalation (recidivism)"
+              description: "{{ $value }} IP(s) permanently banned in the last hour"
+
+          - alert: FingerprintAbuse
+            expr: increase(fraud_fingerprint_bans_total[1h]) > 0
+            for: 0m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Fingerprint abuse detected"
+              description: "{{ $value }} IP(s) banned — same device fingerprint across multiple IPs"
+
+          - alert: HighWsQueueDrops
+            expr: rate(sfu_ws_queue_dropped_total[5m]) > 1
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "WebSocket messages being dropped"
+              description: "{{ $value }} WS messages/s dropped"
+
+          - alert: HighRtpPacketDrops
+            expr: rate(sfu_rtp_packets_dropped_total[5m]) > 10
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "RTP packets dropped at high rate"
+              description: "{{ $value }} RTP packets/s dropped — audio quality degraded"
+
+          - alert: HighDestinationTracks
+            expr: sfu_destination_tracks > 500
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High O(N²) forwarding load"
+              description: "{{ $value }} destination tracks active"
+
+---
+# ============================================================
+# ConfigMap — Alertmanager
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: void
+  labels:
+    app.kubernetes.io/part-of: void-monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      smtp_smarthost: 'smtp.gmail.com:587'
+      smtp_from: 'REPLACE_SMTP_FROM'
+      smtp_auth_username: 'REPLACE_SMTP_USER'
+      smtp_auth_password: 'REPLACE_SMTP_PASSWORD'
+      slack_api_url: 'REPLACE_SLACK_WEBHOOK'
+
+    route:
+      receiver: 'slack-all'
+      group_by: ['alertname', 'severity', 'instance']
+      group_wait: 10s
+      group_interval: 5m
+      repeat_interval: 4h
+      routes:
+        - match:
+            alertname: FraudIPBanned
+          receiver: 'slack-fraud'
+          continue: false
+        - match:
+            alertname: HighBlockedRequests
+          receiver: 'slack-fraud'
+          continue: false
+        - match:
+            severity: critical
+          receiver: 'slack-critical'
+          continue: true
+        - match:
+            severity: warning
+          receiver: 'email-default'
+
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'instance']
+
+    receivers:
+      - name: 'email-default'
+        email_configs:
+          - to: 'REPLACE_EMAIL'
+            send_resolved: true
+      - name: 'slack-critical'
+        slack_configs:
+          - channel: '#sfu-alerts-critical'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+            color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+            text: |
+              {{ range .Alerts }}*Summary:* {{ .Annotations.summary }}
+              *Description:* {{ .Annotations.description }}{{ end }}
+      - name: 'slack-all'
+        slack_configs:
+          - channel: '#sfu-alerts'
+            send_resolved: true
+            title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+            color: '{{ if eq .Status "firing" }}warning{{ else }}good{{ end }}'
+            text: |
+              {{ range .Alerts }}*Alert:* {{ .Annotations.summary }}{{ end }}
+      - name: 'slack-fraud'
+        slack_configs:
+          - channel: '#fraud-alerts'
+            send_resolved: true
+            title: '🚨 [{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}'
+            color: '{{ if eq .Status "firing" }}danger{{ else }}good{{ end }}'
+            text: |
+              {{ range .Alerts }}*Summary:* {{ .Annotations.summary }}
+              *Description:* {{ .Annotations.description }}{{ end }}
+
+---
+# ============================================================
+# ConfigMap — Grafana Provisioning: Datasources
+# URLs updated to use in-cluster DNS instead of localhost
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-datasources
+  namespace: void
+  labels:
+    app.kubernetes.io/part-of: void-monitoring
+data:
+  datasources.yml: |
+    apiVersion: 1
+    datasources:
+      - name: Prometheus
+        uid: prometheus
+        type: prometheus
+        access: proxy
+        url: http://prometheus.void.svc.cluster.local:9090
+        isDefault: true
+        editable: true
+        jsonData:
+          timeInterval: "5s"
+      - name: Alertmanager
+        type: alertmanager
+        access: proxy
+        url: http://alertmanager.void.svc.cluster.local:9093
+        editable: false
+
+---
+# ============================================================
+# ConfigMap — Grafana Provisioning: Dashboard provider
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-provider
+  namespace: void
+  labels:
+    app.kubernetes.io/part-of: void-monitoring
+data:
+  dashboard.yml: |
+    apiVersion: 1
+    providers:
+      - name: 'SFU Dashboards'
+        orgId: 1
+        folder: 'SFU Monitoring'
+        folderUid: 'sfu-monitoring'
+        type: file
+        disableDeletion: false
+        updateIntervalSeconds: 10
+        allowUiUpdates: true
+        options:
+          path: /etc/grafana/provisioning/dashboards
+
+---
+# ============================================================
+# PersistentVolumeClaims
+# Uses k3s default 'local-path' StorageClass (Rancher).
+# Data is stored on the node at /var/lib/rancher/k3s/storage/
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signaling-data
+  namespace: void
+  labels:
+    app: signaling-server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: void
+  labels:
+    app: prometheus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: void
+  labels:
+    app: grafana
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alertmanager-data
+  namespace: void
+  labels:
+    app: alertmanager
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 500Mi
+
+---
+# ============================================================
+# DaemonSet — Signaling Server
+#
+# Why DaemonSet + hostNetwork?
+#   WebRTC ICE requires binding a single UDP socket on 0.0.0.0
+#   with a predictable port (ICE_UDP_PORT). Oracle Cloud uses
+#   1:1 NAT; if the server were running behind a bridge network,
+#   ICE candidates would advertise a 10.x/172.x address that is
+#   unreachable from external peers. hostNetwork exposes the
+#   real node IP directly — identical to docker-compose behaviour.
+#
+# Why not a LoadBalancer Service for UDP?
+#   k3s/klipper LoadBalancer does not support large UDP port
+#   ranges (10000-20000). hostNetwork is the correct solution
+#   for a real-time media server on a single node.
+# ============================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: signaling-server
+  namespace: void
+  labels:
+    app: signaling-server
+    app.kubernetes.io/part-of: void
+spec:
+  selector:
+    matchLabels:
+      app: signaling-server
+  template:
+    metadata:
+      labels:
+        app: signaling-server
+    spec:
+      # Required for WebRTC ICE: bind directly on the host network interface
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      restartPolicy: Always
+
+      securityContext:
+        runAsNonRoot: false
+
+      containers:
+        - name: signaling-server
+          # Image substituted by CI via envsubst: SIGNALING_IMAGE=ghcr.io/<org>/void-signaling-server:<sha>
+          image: ${SIGNALING_IMAGE}
+          imagePullPolicy: Always
+
+          securityContext:
+            # Mirrors 'privileged: true' from docker-compose (needed for raw socket access)
+            privileged: true
+
+          env:
+            - name: RUST_LOG
+              value: "info"
+            # JWT_SECRET → secrets.JWT_SECRET (GitHub Actions secret)
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: void-signaling-secrets
+                  key: JWT_SECRET
+            # PUBLIC_IP → secrets.PUBLIC_IP (Oracle Cloud 1:1 NAT public IP)
+            - name: PUBLIC_IP
+              valueFrom:
+                secretKeyRef:
+                  name: void-signaling-secrets
+                  key: PUBLIC_IP
+            # ICE_UDP_PORT: fixed single UDP mux socket — prevents Docker/k8s bridge IP leaks
+            - name: ICE_UDP_PORT
+              value: "10000"
+            # PRIMARY_PIN_HASH / BACKUP_PIN_HASH are build-time Rust env vars compiled
+            # into the binary by the CI (cargo build env). No runtime injection needed.
+
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+              hostPort: 3001
+            - name: ice-udp
+              containerPort: 10000
+              protocol: UDP
+              hostPort: 10000
+
+          volumeMounts:
+            # cert-manager populates void-tls-certs with tls.crt / tls.key.
+            # subPath aliases map them to the paths the Rust server expects,
+            # avoiding any backend code change.
+            - name: tls-certs
+              mountPath: /app/cert.pem
+              subPath: tls.crt
+              readOnly: true
+            - name: tls-certs
+              mountPath: /app/key.pem
+              subPath: tls.key
+              readOnly: true
+            - name: signaling-data
+              mountPath: /app/data
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "2000m"
+              memory: "1Gi"
+
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: void-tls-certs
+        - name: signaling-data
+          persistentVolumeClaim:
+            claimName: signaling-data
+
+---
+# ============================================================
+# Service — Signaling Server
+# ClusterIP allows in-cluster components (Prometheus) to reach
+# the server by DNS. External access goes through hostNetwork.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: signaling-server
+  namespace: void
+  labels:
+    app: signaling-server
+spec:
+  selector:
+    app: signaling-server
+  ports:
+    - name: http
+      port: 3001
+      targetPort: 3001
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# Deployment — Prometheus
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: void
+  labels:
+    app: prometheus
+    app.kubernetes.io/part-of: void-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: prometheus
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+
+      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      containers:
+        - name: prometheus
+          image: prom/prometheus:v2.47.0
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=30d'
+            - '--web.enable-lifecycle'
+            - '--web.external-url=https://${DOMAIN}/prometheus/'
+          ports:
+            - name: http
+              containerPort: 9090
+              protocol: TCP
+
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus/prometheus.yml
+              subPath: prometheus.yml
+              readOnly: true
+            - name: prometheus-config
+              mountPath: /etc/prometheus/alert_rules.yml
+              subPath: alert_rules.yml
+              readOnly: true
+            - name: prometheus-data
+              mountPath: /prometheus
+
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 20
+            periodSeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: prometheus-data
+          persistentVolumeClaim:
+            claimName: prometheus-data
+
+---
+# ============================================================
+# Service — Prometheus
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: void
+  labels:
+    app: prometheus
+spec:
+  selector:
+    app: prometheus
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# Deployment — Grafana
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: grafana
+  namespace: void
+  labels:
+    app: grafana
+    app.kubernetes.io/part-of: void-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      securityContext:
+        runAsUser: 472
+        runAsGroup: 472
+        fsGroup: 472
+
+      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      containers:
+        - name: grafana
+          image: grafana/grafana:10.2.0
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+
+          env:
+            - name: GF_SECURITY_ADMIN_USER
+              value: "admin"
+            - name: GF_SECURITY_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: GF_SECURITY_ADMIN_PASSWORD
+            - name: GF_USERS_ALLOW_SIGN_UP
+              value: "false"
+            - name: GF_INSTALL_PLUGINS
+              value: "grafana-clock-panel,grafana-simple-json-datasource"
+            - name: GF_PROVISIONING_ENABLED
+              value: "true"
+            - name: GF_SERVER_DOMAIN
+              value: "${DOMAIN}"
+            - name: GF_SERVER_ROOT_URL
+              value: "%(protocol)s://%(domain)s/grafana/"
+            - name: GF_SERVER_SERVE_FROM_SUB_PATH
+              value: "true"
+
+          volumeMounts:
+            - name: grafana-data
+              mountPath: /var/lib/grafana
+            - name: grafana-datasources
+              mountPath: /etc/grafana/provisioning/datasources
+              readOnly: true
+            - name: grafana-dashboard-provider
+              mountPath: /etc/grafana/provisioning/dashboards/dashboard.yml
+              subPath: dashboard.yml
+              readOnly: true
+            # Requires: kubectl create configmap grafana-dashboards-json
+            #   --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json -n void
+            - name: grafana-dashboards-json
+              mountPath: /etc/grafana/provisioning/dashboards/sfu-dashboard.json
+              subPath: sfu-dashboard.json
+              readOnly: true
+
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+      volumes:
+        - name: grafana-data
+          persistentVolumeClaim:
+            claimName: grafana-data
+        - name: grafana-datasources
+          configMap:
+            name: grafana-datasources
+        - name: grafana-dashboard-provider
+          configMap:
+            name: grafana-dashboard-provider
+        - name: grafana-dashboards-json
+          configMap:
+            name: grafana-dashboards-json
+
+---
+# ============================================================
+# Service — Grafana
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: void
+  labels:
+    app: grafana
+spec:
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# Secret — Alertmanager credentials
+# Mirrors the secrets injected via `sed` in deploy-signaling.yml:
+#   secrets.SMTP_EMAIL, SMTP_AUTH_PASSWORD, SLACK_WEBHOOK_URL, DOMAIN
+# Create with the kubectl command in the pre-flight checklist above.
+# ============================================================
+apiVersion: v1
+kind: Secret
+metadata:
+  name: alertmanager-secrets
+  namespace: void
+  labels:
+    app: alertmanager
+type: Opaque
+# Values are set via: kubectl create secret generic alertmanager-secrets ...
+# Do NOT commit real values here.
+
+---
+# ============================================================
+# Deployment — Alertmanager
+# An initContainer replicates the sed-substitution from the CI
+# deploy-signaling.yml script, injecting SMTP/Slack credentials
+# from the alertmanager-secrets Secret into a rendered config
+# written to an emptyDir volume.
+# ============================================================
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alertmanager
+  namespace: void
+  labels:
+    app: alertmanager
+    app.kubernetes.io/part-of: void-monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: alertmanager
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: alertmanager
+    spec:
+      securityContext:
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+
+      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      # Replicates the sed-substitution performed in deploy-signaling.yml:
+      #   sed -i "s|REPLACE_SMTP_USER|...|g" docker/alertmanager.yml
+      # Reads the template from the ConfigMap, writes the rendered config
+      # to a shared emptyDir volume consumed by the main container.
+      initContainers:
+        - name: alertmanager-config-init
+          image: alpine:3.19
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /etc/alertmanager-tpl/alertmanager.yml /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_SMTP_FROM|${DOMAIN}|g"                  /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_SMTP_USER|${SMTP_EMAIL}|g"              /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_SMTP_PASSWORD|${SMTP_AUTH_PASSWORD}|g"  /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_SLACK_WEBHOOK|${SLACK_WEBHOOK_URL}|g"   /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_DOMAIN|${DOMAIN}|g"                     /etc/alertmanager-rendered/alertmanager.yml
+              sed -i "s|REPLACE_EMAIL|${SMTP_EMAIL}|g"                  /etc/alertmanager-rendered/alertmanager.yml
+              echo "Alertmanager config rendered successfully."
+          env:
+            - name: SMTP_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: SMTP_EMAIL
+            - name: SMTP_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: SMTP_AUTH_PASSWORD
+            - name: SLACK_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: SLACK_WEBHOOK_URL
+            - name: DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: alertmanager-secrets
+                  key: DOMAIN
+          volumeMounts:
+            - name: alertmanager-config-tpl
+              mountPath: /etc/alertmanager-tpl
+              readOnly: true
+            - name: alertmanager-config-rendered
+              mountPath: /etc/alertmanager-rendered
+
+      containers:
+        - name: alertmanager
+          image: prom/alertmanager:v0.26.0
+          args:
+            - '--config.file=/etc/alertmanager/alertmanager.yml'
+            - '--storage.path=/alertmanager'
+            - '--web.external-url=https://${DOMAIN}/alertmanager/'
+          ports:
+            - name: http
+              containerPort: 9093
+              protocol: TCP
+
+          volumeMounts:
+            # Rendered config from initContainer (secrets injected)
+            - name: alertmanager-config-rendered
+              mountPath: /etc/alertmanager
+              readOnly: true
+            - name: alertmanager-data
+              mountPath: /alertmanager
+
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9093
+            initialDelaySeconds: 15
+            periodSeconds: 30
+
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9093
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+      volumes:
+        # Template ConfigMap (contains REPLACE_* placeholders)
+        - name: alertmanager-config-tpl
+          configMap:
+            name: alertmanager-config
+        # Rendered config written by initContainer
+        - name: alertmanager-config-rendered
+          emptyDir: {}
+        - name: alertmanager-data
+          persistentVolumeClaim:
+            claimName: alertmanager-data
+
+---
+# ============================================================
+# Service — Alertmanager
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: alertmanager
+  namespace: void
+  labels:
+    app: alertmanager
+spec:
+  selector:
+    app: alertmanager
+  ports:
+    - name: http
+      port: 9093
+      targetPort: 9093
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# DaemonSet — Node Exporter
+# hostNetwork + hostPID required to expose real host metrics.
+# One pod per node, mirrors docker-compose behaviour exactly.
+# ============================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  namespace: void
+  labels:
+    app: node-exporter
+    app.kubernetes.io/part-of: void-monitoring
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      hostNetwork: true
+      hostPID: true
+      dnsPolicy: ClusterFirstWithHostNet
+
+      tolerations:
+        - operator: Exists
+          effect: NoSchedule
+
+      containers:
+        - name: node-exporter
+          image: prom/node-exporter:latest
+          args:
+            - '--path.rootfs=/host'
+          ports:
+            - name: metrics
+              containerPort: 9100
+              hostPort: 9100
+              protocol: TCP
+
+          volumeMounts:
+            - name: rootfs
+              mountPath: /host
+              readOnly: true
+              mountPropagation: HostToContainer
+
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65534
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "128Mi"
+
+      volumes:
+        - name: rootfs
+          hostPath:
+            path: /
+
+---
+# ============================================================
+# Service — Node Exporter
+# Headless service used by Prometheus for DNS-based discovery.
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: node-exporter
+  namespace: void
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    app: node-exporter
+  ports:
+    - name: metrics
+      port: 9100
+      targetPort: 9100
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# Traefik Middleware — Strip sub-path prefix
+# Named 'void-strip-prefix' so the IngressRoute below can
+# reference it directly by name (no namespace-name@kubernetescrd needed).
+# ============================================================
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  name: void-strip-prefix
+  namespace: void
+spec:
+  stripPrefixRegex:
+    regex:
+      - "^/(grafana|prometheus|alertmanager)"
+
+---
+# ============================================================
+# IngressRoute — Traefik (k3s built-in, native CRD)
+#
+# Uses IngressRoute instead of standard Ingress so middlewares
+# can be referenced directly by name — no namespace-name@kubernetescrd
+# annotation gymnastics required.
+#
+# TLS secret 'void-tls-certs' is auto-populated by the cert-manager
+# Certificate resource above (Let's Encrypt via ACME HTTP-01).
+#
+# The signaling server is NOT routed here: it binds directly on
+# the host via hostNetwork (WebSocket + WebRTC ICE UDP on port 3001).
+# ============================================================
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: void-ingress
+  namespace: void
+  labels:
+    app.kubernetes.io/part-of: void-monitoring
+spec:
+  entryPoints:
+    - websecure
+  tls:
+    # Cert auto-managed by cert-manager Certificate resource (letsencrypt-prod)
+    secretName: void-tls-certs
+  routes:
+    - match: Host(`${DOMAIN}`) && PathPrefix(`/grafana`)
+      kind: Rule
+      middlewares:
+        - name: void-strip-prefix
+      services:
+        - name: grafana
+          port: 3000
+    - match: Host(`${DOMAIN}`) && PathPrefix(`/prometheus`)
+      kind: Rule
+      middlewares:
+        - name: void-strip-prefix
+      services:
+        - name: prometheus
+          port: 9090
+    - match: Host(`${DOMAIN}`) && PathPrefix(`/alertmanager`)
+      kind: Rule
+      middlewares:
+        - name: void-strip-prefix
+      services:
+        - name: alertmanager
+          port: 9093
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

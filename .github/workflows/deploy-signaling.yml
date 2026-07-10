@@ -1,3 +1,27 @@
+# Copyright (c) 2024 Void — Business Source License 1.1
+# See LICENSE file for full terms. Production use requires a commercial license.
+#
+# Deploy pipeline: native ARM64 build on self-hosted runner → push to GHCR → kubectl apply
+#
+# Required GitHub secrets:
+#   PRIMARY_PIN_HASH     — build-time Rust env var (baked into the binary at compile time)
+#   BACKUP_PIN_HASH      — build-time Rust env var (baked into the binary at compile time)
+#   DOMAIN               — public domain used for envsubst in deployment-k3s.yaml
+#   SLACK_WEBHOOK_URL    — Slack notifications
+#
+# Self-hosted runner setup (one-time, on the Oracle ARM64 VM):
+#   Go to: GitHub → Settings → Actions → Runners → New self-hosted runner
+#   Select: Linux / ARM64 — follow the instructions on the VM
+#   The runner must have: docker, kubectl, cargo, rustup, gettext-base (envsubst)
+#   Install dependencies:  sudo apt-get install -y gettext-base
+#                          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+#
+# No KUBE_CONFIG secret needed: kubectl uses /etc/rancher/k3s/k3s.yaml on the VM directly.
+# No QEMU, no cross-compilation, no ARM64 linker — builds run natively on aarch64.
+#
+# One-time cluster bootstrap (run manually once on the VM):
+#   See deployment-k3s.yaml pre-flight checklist for kubectl create secret commands.
+
 name: Deploy Signaling Server + Monitoring
 
 on:
@@ -11,15 +35,20 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/deploy-signaling.yml'
       - 'Dockerfile'
-      - 'docker-compose.yml'
+      - 'deployment-k3s.yaml'
       - 'docker/**'
   workflow_dispatch:
 
 env:
   RUST_TOOLCHAIN: stable
-  TARGET_PLATFORM: aarch64-unknown-linux-gnu
+  # GHCR image — repository_owner works for personal accounts and orgs alike
+  IMAGE: ghcr.io/${{ github.repository_owner }}/void-signaling-server
 
 jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Run the test suite on a standard runner before any deploy step.
+  # Kept on ubuntu-latest (x86) since unit tests don't require ARM64 hardware.
+  # ─────────────────────────────────────────────────────────────────────────
   test:
     runs-on: ubuntu-latest
     env:
@@ -51,23 +80,27 @@ jobs:
       - name: Run signaling-server tests
         run: cargo test -p signaling-server --verbose
 
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build on the Oracle ARM64 VM (self-hosted runner).
+  # Native compilation — no QEMU, no cross-linker, no TARGET_PLATFORM override.
+  # Docker builds natively for linux/arm64 without emulation.
+  # kubectl uses the local k3s kubeconfig already present on the VM.
+  # ─────────────────────────────────────────────────────────────────────────
   build-and-deploy:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64]
+    permissions:
+      contents: read
+      packages: write   # required to push to GitHub Container Registry
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain (native aarch64)
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
-          targets: ${{ env.TARGET_PLATFORM }}
-
-      - name: Install ARM64 Linker
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
 
       - name: Cache Cargo registry
         uses: actions/cache@v4
@@ -76,99 +109,101 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: aarch64-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            aarch64-cargo-
 
-      - name: Build Binary (ARM64)
+      # Native build — no --target flag, no cross-linker env var needed
+      - name: Build binary (native aarch64)
         env:
           PRIMARY_PIN_HASH: ${{ secrets.PRIMARY_PIN_HASH }}
           BACKUP_PIN_HASH: ${{ secrets.BACKUP_PIN_HASH }}
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: cargo build --release --target ${{ env.TARGET_PLATFORM }} -p signaling-server
+        run: cargo build --release -p signaling-server
 
-      - name: Prepare Deployment Package
+      # Copy to repo root so the Dockerfile COPY instruction resolves correctly
+      - name: Stage binary for Docker build context
+        run: cp target/release/signaling-server signaling-server
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Native arm64 build — no QEMU, no Buildx platform flag required
+      - name: Build and push Docker image (native linux/arm64)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          # SHA tag = immutable reference pinned in the manifest; latest = rolling alias
+          tags: |
+            ${{ env.IMAGE }}:latest
+            ${{ env.IMAGE }}:${{ github.sha }}
+          build-args: |
+            PRIMARY_PIN_HASH=${{ secrets.PRIMARY_PIN_HASH }}
+            BACKUP_PIN_HASH=${{ secrets.BACKUP_PIN_HASH }}
+
+      # k3s kubeconfig is already present on the VM — no KUBE_CONFIG secret needed
+      - name: Configure kubectl
         run: |
-          mkdir -p deploy-package/docker/grafana/provisioning/datasources
-          mkdir -p deploy-package/docker/grafana/provisioning/dashboards
+          mkdir -p ~/.kube
+          sudo cat /etc/rancher/k3s/k3s.yaml > ~/.kube/config
+          chmod 600 ~/.kube/config
 
-          cp target/${{ env.TARGET_PLATFORM }}/release/signaling-server deploy-package/
-          cp Dockerfile deploy-package/
-          cp docker-compose.yml deploy-package/
+      - name: Ensure namespace exists
+        run: kubectl get namespace void 2>/dev/null || kubectl create namespace void
 
-          cp docker/prometheus.yml deploy-package/docker/
-          cp docker/alert_rules.yml deploy-package/docker/
-          cp docker/alertmanager.yml deploy-package/docker/
+      # Grafana dashboard JSON is managed outside the main manifest (too large to inline).
+      # --dry-run=client + apply makes this step fully idempotent.
+      - name: Sync Grafana dashboard ConfigMap
+        run: |
+          kubectl create configmap grafana-dashboards-json \
+            --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
+            -n void --dry-run=client -o yaml | kubectl apply -f -
 
-          cp docker/grafana/provisioning/datasources/datasources.yml deploy-package/docker/grafana/provisioning/datasources/
-          cp docker/grafana/provisioning/dashboards/dashboard.yml deploy-package/docker/grafana/provisioning/dashboards/
-          cp docker/grafana/provisioning/dashboards/sfu-dashboard.json deploy-package/docker/grafana/provisioning/dashboards/
+      - name: Render manifest with envsubst and apply
+        env:
+          DOMAIN: ${{ secrets.DOMAIN }}
+          # Pin to the exact commit SHA so every rollout is fully traceable
+          SIGNALING_IMAGE: ${{ env.IMAGE }}:${{ github.sha }}
+        run: |
+          # Restrict substitution to DOMAIN and SIGNALING_IMAGE only.
+          # Without the explicit list, envsubst would erase Prometheus alert
+          # template vars ({{ $value }}) and Grafana URL patterns (%(protocol)s)
+          # that also look like shell variables, corrupting the rendered config.
+          envsubst '$DOMAIN,$SIGNALING_IMAGE' < deployment-k3s.yaml | kubectl apply -f -
 
-          tar -czvf deploy.tar.gz -C deploy-package .
+      - name: Wait for signaling-server rollout
+        run: kubectl rollout status daemonset/signaling-server -n void --timeout=120s
 
-      - name: Copy to Oracle VM
-        uses: appleboy/scp-action@v0.1.7
+      - name: Wait for monitoring stack
+        run: |
+          kubectl rollout status deployment/prometheus   -n void --timeout=90s
+          kubectl rollout status deployment/grafana      -n void --timeout=90s
+          kubectl rollout status deployment/alertmanager -n void --timeout=90s
+
+      - name: Health checks
+        run: |
+          kubectl wait --for=condition=Ready pod -l app=signaling-server -n void --timeout=60s
+          kubectl wait --for=condition=Ready pod -l app=prometheus        -n void --timeout=60s
+          kubectl wait --for=condition=Ready pod -l app=grafana           -n void --timeout=60s
+          echo "🚀 Deployment successful — ${{ env.IMAGE }}:${{ github.sha }}"
+
+      # Keep last 5 untagged digests in GHCR to avoid storage bloat
+      - name: Prune old GHCR images
+        uses: actions/delete-package-versions@v5
         with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_SSH_KEY }}
-          source: "deploy.tar.gz"
-          target: "/home/ubuntu"
+          package-name: void-signaling-server
+          package-type: container
+          min-versions-to-keep: 5
+          delete-only-untagged-versions: true
+        continue-on-error: true
 
-      - name: Deploy on VM
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ubuntu
-          key: ${{ secrets.ORACLE_SSH_KEY }}
-          envs: DOMAIN,GF_DOMAIN
-          script: |
-            echo "=== Déploiement SFU + Monitoring ==="
-            mkdir -p ~/Void
-            cd ~/Void
-            rm -rf docker/
-            tar -xzvf ~/deploy.tar.gz
-            rm ~/deploy.tar.gz
-            sudo chown -R ubuntu:ubuntu ~/Void
-            chmod -R 644 docker/*.yml 2>/dev/null || true
-
-            # Création du fichier .env complet et sécurisé
-            cat > .env << ENVEOF
-            PRIMARY_PIN_HASH="${{ secrets.PRIMARY_PIN_HASH }}"
-            BACKUP_PIN_HASH="${{ secrets.BACKUP_PIN_HASH }}"
-            JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            SMTP_AUTH_PASSWORD="${{ secrets.SMTP_AUTH_PASSWORD }}"
-            SLACK_WEBHOOK_URL="${{ secrets.SLACK_WEBHOOK_URL }}"
-            GF_ADMIN_PASSWORD="${{ secrets.GF_ADMIN_PASSWORD }}"
-            PUBLIC_IP="${{ secrets.PUBLIC_IP }}"
-            ICE_UDP_PORT=10000
-            GF_DOMAIN="${{secrets.DOMAIN}}"
-            DOMAIN="${{secrets.DOMAIN}}"
-            ENVEOF
-            chmod 600 .env
-
-            # Patch Alertmanager
-            sed -i "s|REPLACE_SMTP_USER|${{ secrets.SMTP_EMAIL }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_SMTP_PASSWORD|${{ secrets.SMTP_AUTH_PASSWORD }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_SLACK_WEBHOOK|${{ secrets.SLACK_WEBHOOK_URL }}|g" docker/alertmanager.yml
-            sed -i "s|REPLACE_DOMAIN|${{secrets.DOMAIN}}|g" docker/alertmanager.yml
-
-            sudo docker compose down || true
-            sudo docker compose build --no-cache signaling-server
-            sudo docker compose up -d
-
-            echo "Attente de démarrage (30s)..."
-            sleep 30
-
-            echo "=== Tests de santé ==="
-            # Tests de santé bavards avec logs d'erreur explicites
-            curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
-            curl -s --max-time 5 http://localhost:9090/prometheus/-/healthy | grep -q "Healthy" && echo "✅ Prometheus OK" || { echo "❌ Prometheus FAILED"; exit 1; }
-            curl -s --max-time 5 http://localhost:3000/api/health | grep -q "ok" && echo "✅ Grafana OK" || { echo "❌ Grafana FAILED"; exit 1; }
-
-            sudo docker image prune -f
-            echo "🚀 Déploiement terminé avec succès !"
-
+  # ─────────────────────────────────────────────────────────────────────────
+  # Slack notification regardless of success or failure.
+  # ─────────────────────────────────────────────────────────────────────────
   notify:
     needs: build-and-deploy
     if: always()
@@ -178,6 +213,6 @@ jobs:
         uses: 8398a7/action-slack@v3
         with:
           status: ${{ job.status }}
-          text: "Déploiement SFU: ${{ job.status }} (Commit: ${{ github.event.head_commit.message }})"
+          text: "Déploiement SFU k3s: ${{ job.status }} — ${{ github.event.head_commit.message }}"
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

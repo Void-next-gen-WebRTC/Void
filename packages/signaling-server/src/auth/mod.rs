@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::errors::ApiError;
 use crate::fraud::FraudState;
 use crate::models::*;
-use crate::negotiate::{Negotiated, accepts_proto, decode_body, negotiate, negotiate_list};
+use crate::negotiate::{accepts_proto, decode_body, negotiate, negotiate_list, Negotiated};
 use crate::nonce::NonceStore;
 use crate::sfu::crypto;
 use crate::sfu::registry::ServerRegistry;

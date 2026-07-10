@@ -13,7 +13,7 @@
 //! ```
 
 use bytes::Bytes;
-use criterion::{BenchmarkId, Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use webrtc::rtp::header::Header;
 use webrtc::rtp::packet::Packet;
 

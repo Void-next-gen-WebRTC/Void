@@ -21,8 +21,8 @@ use tokio::sync::mpsc;
 use tracing::debug;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
-use webrtc::track::track_local::TrackLocalWriter;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
+use webrtc::track::track_local::TrackLocalWriter;
 
 use crate::extension::{Direction, InterceptOutcome, PacketContext, PacketInterceptor};
 use crate::id::{MediaSourceId, PeerId, RoomId};

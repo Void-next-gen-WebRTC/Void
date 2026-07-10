@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tempfile::tempdir;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use void_sfu::{Sfu, SfuConfig};
 
 use crate::sfu::dm;
