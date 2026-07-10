@@ -855,7 +855,7 @@ spec:
             - name: GF_SERVER_DOMAIN
               value: "${DOMAIN}"
             - name: GF_SERVER_ROOT_URL
-              value: "%(protocol)s://%(domain)s/grafana/"
+              value: "https://%(domain)s/grafana/"
             - name: GF_SERVER_SERVE_FROM_SUB_PATH
               value: "true"
 
@@ -1196,6 +1196,26 @@ spec:
 
 ---
 # ============================================================
+# Traefik Middleware — Forward HTTPS origin header
+#
+# Traefik terminates TLS then speaks plain HTTP to pods.
+# Without this header, apps see HTTP traffic and may redirect
+# to their own https:// URL, causing an infinite redirect loop.
+# Setting X-Forwarded-Proto: https tells them the client
+# connection was already encrypted — no redirect needed.
+# ============================================================
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: void-forward-proto
+  namespace: void
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+
+---
+# ============================================================
 # Traefik Middleware — HTTP → HTTPS redirect (permanent 301)
 # Applied on the 'web' entrypoint (port 80) to force all traffic
 # onto TLS. The 'websecure' IngressRoute handles the actual routing.
@@ -1281,6 +1301,7 @@ spec:
       kind: Rule
       middlewares:
         - name: void-strip-prefix
+        - name: void-forward-proto
       services:
         - name: grafana
           port: 3000
@@ -1288,6 +1309,7 @@ spec:
       kind: Rule
       middlewares:
         - name: void-strip-prefix
+        - name: void-forward-proto
       services:
         - name: prometheus
           port: 9090
@@ -1295,6 +1317,7 @@ spec:
       kind: Rule
       middlewares:
         - name: void-strip-prefix
+        - name: void-forward-proto
       services:
         - name: alertmanager
           port: 9093
