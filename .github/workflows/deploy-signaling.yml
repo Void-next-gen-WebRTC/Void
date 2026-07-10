@@ -253,6 +253,17 @@ jobs:
             kubectl rollout status deployment/grafana      -n void --timeout=120s || echo "⚠️  Grafana not ready"
             kubectl rollout status deployment/alertmanager -n void --timeout=120s || echo "⚠️  Alertmanager not ready (check alertmanager-secrets)"
 
+            # Sync Grafana admin password with the GitHub secret on every deploy.
+            # grafana-cli writes directly to the Grafana database so env var changes
+            # (which only affect first-boot initialisation) are always overridden.
+            if [ -n "${GF_ADMIN_PASSWORD}" ]; then
+              echo "=== Syncing Grafana admin password ==="
+              kubectl exec -n void deploy/grafana -- \
+                grafana-cli admin reset-admin-password "${GF_ADMIN_PASSWORD}" \
+                && echo "✅ Grafana password synced" \
+                || echo "⚠️  grafana-cli reset failed (pod may still be starting)"
+            fi
+
             echo "=== Health checks ==="
             curl -f --max-time 15 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
 
