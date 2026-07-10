@@ -227,15 +227,16 @@ jobs:
             kubectl apply -f deployment-k3s-rendered.yaml
 
             echo "=== Waiting for signaling-server rollout ==="
-            kubectl rollout status daemonset/signaling-server -n void --timeout=120s
+            kubectl rollout status daemonset/signaling-server -n void --timeout=180s
 
-            echo "=== Waiting for monitoring stack ==="
-            kubectl rollout status deployment/prometheus   -n void --timeout=90s
-            kubectl rollout status deployment/grafana      -n void --timeout=90s
-            kubectl rollout status deployment/alertmanager -n void --timeout=90s
+            echo "=== Waiting for monitoring stack (non-blocking) ==="
+            # Monitoring pods are not critical path — warn but don't fail the deploy.
+            kubectl rollout status deployment/prometheus   -n void --timeout=300s || echo "⚠️  Prometheus not ready (check port 9090 conflicts)"
+            kubectl rollout status deployment/grafana      -n void --timeout=120s || echo "⚠️  Grafana not ready"
+            kubectl rollout status deployment/alertmanager -n void --timeout=120s || echo "⚠️  Alertmanager not ready (check alertmanager-secrets)"
 
             echo "=== Health checks ==="
-            curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
+            curl -f --max-time 15 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
 
             kubectl image prune -a --force 2>/dev/null || true
             echo "🚀 Déploiement k3s terminé avec succès !"

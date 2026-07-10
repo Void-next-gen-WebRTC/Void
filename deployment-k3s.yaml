@@ -571,14 +571,18 @@ spec:
       securityContext:
         runAsNonRoot: false
 
+      # Pull secret for GHCR private image (refreshed by CI on every deploy).
+      # Create the PAT secret once: kubectl create secret docker-registry ghcr-secret
+      #   --docker-server=ghcr.io --docker-username=<actor> --docker-password=<PAT> -n void
+      imagePullSecrets:
+        - name: ghcr-secret
+
       containers:
         - name: signaling-server
-          # Image built on the VM and imported into k3s containerd via:
-          # docker save | k3s ctr images import
-          # imagePullPolicy: Never tells k3s to use the local containerd image
-          # without attempting any registry pull.
+          # Image built and pushed to GHCR by CI (docker/build-push-action).
+          # Always pull so the newly pushed SHA tag is used on every rollout.
           image: ${SIGNALING_IMAGE}
-          imagePullPolicy: Never
+          imagePullPolicy: Always
 
 
           securityContext:
@@ -708,6 +712,8 @@ spec:
       app: prometheus
   strategy:
     type: Recreate
+  # Give Prometheus enough time to start with the PVC mounted
+  progressDeadlineSeconds: 300
   template:
     metadata:
       labels:
@@ -935,23 +941,6 @@ spec:
       protocol: TCP
   type: ClusterIP
 
----
-# ============================================================
-# Secret — Alertmanager credentials
-# Mirrors the secrets injected via `sed` in deploy-signaling.yml:
-#   secrets.SMTP_EMAIL, SMTP_AUTH_PASSWORD, SLACK_WEBHOOK_URL, DOMAIN
-# Create with the kubectl command in the pre-flight checklist above.
-# ============================================================
-apiVersion: v1
-kind: Secret
-metadata:
-  name: alertmanager-secrets
-  namespace: void
-  labels:
-    app: alertmanager
-type: Opaque
-# Values are set via: kubectl create secret generic alertmanager-secrets ...
-# Do NOT commit real values here.
 
 ---
 # ============================================================
