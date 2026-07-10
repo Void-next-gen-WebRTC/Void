@@ -3,8 +3,8 @@ use std::time::{Duration, Instant};
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    Encoder, Histogram, IntCounter, IntGauge, TextEncoder, register_histogram,
-    register_int_counter, register_int_gauge,
+    register_histogram, register_int_counter, register_int_gauge, Encoder, Histogram, IntCounter,
+    IntGauge, TextEncoder,
 };
 
 use crate::sfu::broadcast::serialize_message;

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::rtp::packet::Packet;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;

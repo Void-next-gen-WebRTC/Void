@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tracing::debug;
 
 use super::broadcast::serialize_message;

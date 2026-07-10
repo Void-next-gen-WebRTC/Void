@@ -4,7 +4,7 @@ use crate::store::Store;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use void_sfu::Sfu;
 /// Max queued WebSocket JSON messages per peer before dropping.
 pub const WS_CHANNEL_CAPACITY: usize = 512;

@@ -10,10 +10,10 @@ use std::time::SystemTime;
 
 use dashmap::DashMap;
 use tracing::{debug, warn};
-use webrtc::api::API;
-use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
+use webrtc::api::APIBuilder;
+use webrtc::api::API;
 
 use crate::config::SfuConfig;
 use crate::error::{SfuError, SfuResult};

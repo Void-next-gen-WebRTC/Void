@@ -12,7 +12,7 @@
 //! cargo bench -p void-sfu --bench stats
 //! ```
 
-use criterion::{Criterion, Throughput, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 use void_sfu::ForwardingStats;
 
 fn bench_stats(c: &mut Criterion) {

@@ -17,16 +17,16 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::{Extension, Router, routing::get};
+use axum::{routing::get, Extension, Router};
 use rustls::crypto::aws_lc_rs;
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use void_sfu::{Sfu, SfuConfig};
-use webrtc::api::APIBuilder;
 use webrtc::api::interceptor_registry::register_default_interceptors;
 use webrtc::api::media_engine::MediaEngine;
 use webrtc::api::setting_engine::SettingEngine;
+use webrtc::api::APIBuilder;
 use webrtc::ice::candidate::CandidateType;
 use webrtc::ice::udp_mux::{UDPMuxDefault, UDPMuxParams};
 use webrtc::ice::udp_network::UDPNetwork;
@@ -141,41 +141,41 @@ async fn main() {
         .layer(TraceLayer::new_for_http());
 
     let addr: SocketAddr = match format!("0.0.0.0:{}", port).parse() {
-            Ok(a) => a,
-            Err(e) => {
-                eprintln!("Invalid bind address: {:?}", e);
-                std::process::exit(1);
-            }
-        };
-
-        // On utilise le même serveur HTTP simple pour DEV et PROD.
-        // En PROD, Nginx (port 443) réceptionne le HTTPS et le "traduit" en HTTP
-        // vers notre port 3001.
-        println!(
-            "🚀 SFU Server running on http://{} | Mode: {} | ICE UDP: port {}",
-            addr,
-            if is_dev { "DEVELOPMENT" } else { "PRODUCTION" },
-            std::env::var("ICE_UDP_PORT").unwrap_or_else(|_| "10000".into()),
-        );
-
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                eprintln!("Bind failed: {:?}", e);
-                std::process::exit(1);
-            }
-        };
-
-        if let Err(e) = axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        {
-            eprintln!("Server error: {:?}", e);
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("Invalid bind address: {:?}", e);
             std::process::exit(1);
         }
+    };
+
+    // On utilise le même serveur HTTP simple pour DEV et PROD.
+    // En PROD, Nginx (port 443) réceptionne le HTTPS et le "traduit" en HTTP
+    // vers notre port 3001.
+    println!(
+        "🚀 SFU Server running on http://{} | Mode: {} | ICE UDP: port {}",
+        addr,
+        if is_dev { "DEVELOPMENT" } else { "PRODUCTION" },
+        std::env::var("ICE_UDP_PORT").unwrap_or_else(|_| "10000".into()),
+    );
+
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("Bind failed: {:?}", e);
+            std::process::exit(1);
+        }
+    };
+
+    if let Err(e) = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    {
+        eprintln!("Server error: {:?}", e);
+        std::process::exit(1);
     }
+}
 
 /// Builds a webrtc-rs `API` with default codecs, default interceptors,
 /// and a single UDP mux bound to `0.0.0.0:ICE_UDP_PORT` (default: 10000).
@@ -208,8 +208,8 @@ async fn build_webrtc_api() -> Result<webrtc::api::API, Box<dyn std::error::Erro
         .unwrap_or(10000);
     let listen_addr = format!("0.0.0.0:{}", udp_port);
     let udp_socket = tokio::net::UdpSocket::bind(&listen_addr)
-            .await
-            .map_err(|e| format!("Failed to bind ICE UDP socket on {listen_addr}: {e}"))?;
+        .await
+        .map_err(|e| format!("Failed to bind ICE UDP socket on {listen_addr}: {e}"))?;
     // UDPMuxDefault::new already returns Arc<Self>; no extra Arc::new wrapper needed.
     let udp_mux = UDPMuxDefault::new(UDPMuxParams::new(udp_socket));
     setting_engine.set_udp_network(UDPNetwork::Muxed(udp_mux));

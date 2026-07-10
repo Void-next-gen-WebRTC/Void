@@ -12,11 +12,11 @@
 use std::sync::Arc;
 
 use tracing::{debug, info, warn};
-use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability;
 use webrtc::rtp_transceiver::rtp_transceiver_direction::RTCRtpTransceiverDirection;
-use webrtc::track::track_local::TrackLocal;
+use webrtc::rtp_transceiver::RTCRtpTransceiverInit;
 use webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP;
+use webrtc::track::track_local::TrackLocal;
 
 use crate::error::{SfuError, SfuResult};
 use crate::forwarder::ForwarderState;
@@ -83,7 +83,10 @@ pub(super) async fn catchup_existing_tracks(
     );
 
     if items.is_empty() && !has_dc_to_catch {
-        warn!("catchup: no forwarders to attach for peer={} in room={}", peer_id, room_id);
+        warn!(
+            "catchup: no forwarders to attach for peer={} in room={}",
+            peer_id, room_id
+        );
         return Ok(());
     }
 
@@ -133,10 +136,7 @@ pub(super) async fn catchup_existing_tracks(
         } else {
             info!(
                 "catchup destination attached source={} -> peer={} track_id={} stream_id={}",
-                item.source_peer,
-                peer_id,
-                item.track_id,
-                item.stream_id
+                item.source_peer, peer_id, item.track_id, item.stream_id
             );
         }
     }

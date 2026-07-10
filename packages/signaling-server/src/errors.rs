@@ -1,6 +1,6 @@
-use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde_json::json;
 
 /// Unified API error type mapping to HTTP status codes.
@@ -36,4 +36,3 @@ impl From<jsonwebtoken::errors::Error> for ApiError {
         ApiError::Unauthorized("Invalid token".into())
     }
 }
-

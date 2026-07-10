@@ -80,8 +80,8 @@ fn concurrent_generation_uniqueness() {
 
 #[test]
 fn concurrent_consume_exactly_once() {
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
     use std::thread;
 
     let store = Arc::new(NonceStore::new());

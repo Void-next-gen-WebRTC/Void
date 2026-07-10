@@ -14,7 +14,7 @@
 
 use std::collections::HashMap;
 
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use void_sfu::{DataChannelSourceId, MediaSourceId, PeerId};
 
 const SAMPLE_PEER: &str = "550e8400-e29b-41d4-a716-446655440000";

@@ -29,8 +29,7 @@ use tauri::WebviewWindow;
 use webview2_com::{
     Microsoft::Web::WebView2::Win32::{
         ICoreWebView2_2, COREWEBVIEW2_PERMISSION_KIND_CAMERA,
-        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE,
-        COREWEBVIEW2_PERMISSION_STATE_ALLOW,
+        COREWEBVIEW2_PERMISSION_KIND_MICROPHONE, COREWEBVIEW2_PERMISSION_STATE_ALLOW,
     },
     PermissionRequestedEventHandler,
 };
@@ -70,19 +69,17 @@ pub fn install_media_auto_grant(window: &WebviewWindow) {
                 }
             };
 
-            let handler = PermissionRequestedEventHandler::create(Box::new(
-                |_sender, args| {
-                    let Some(args) = args else { return Ok(()) };
-                    let mut kind = Default::default();
-                    args.PermissionKind(&mut kind)?;
-                    if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
-                        || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
-                    {
-                        args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
-                    }
-                    Ok(())
-                },
-            ));
+            let handler = PermissionRequestedEventHandler::create(Box::new(|_sender, args| {
+                let Some(args) = args else { return Ok(()) };
+                let mut kind = Default::default();
+                args.PermissionKind(&mut kind)?;
+                if kind == COREWEBVIEW2_PERMISSION_KIND_MICROPHONE
+                    || kind == COREWEBVIEW2_PERMISSION_KIND_CAMERA
+                {
+                    args.SetState(COREWEBVIEW2_PERMISSION_STATE_ALLOW)?;
+                }
+                Ok(())
+            }));
 
             let mut token = Default::default();
             if let Err(err) = core_v2.add_PermissionRequested(&handler, &mut token) {
@@ -99,4 +96,3 @@ pub fn install_media_auto_grant(window: &WebviewWindow) {
 /// bundle entitlements.
 #[cfg(not(target_os = "windows"))]
 pub fn install_media_auto_grant<W>(_window: &W) {}
-

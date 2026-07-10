@@ -21,8 +21,8 @@ use std::sync::Arc;
 use bytes::Bytes;
 use dashmap::DashMap;
 use tracing::{debug, warn};
-use webrtc::data_channel::RTCDataChannel;
 use webrtc::data_channel::data_channel_init::RTCDataChannelInit;
+use webrtc::data_channel::RTCDataChannel;
 
 use crate::dc_forwarder::DataChannelForwarder;
 use crate::id::{DataChannelSourceId, PeerId, RoomId};
