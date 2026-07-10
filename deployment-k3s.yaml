@@ -65,9 +65,11 @@
 #
 # 7. Apply:  CI runs envsubst < deployment-k3s.yaml | kubectl apply -f -
 #            Variables substituted: ${DOMAIN}, ${SIGNALING_IMAGE}
+#            ${DOMAIN}     → root domain served by Traefik (e.g. voidsfu.com)
+#            api.${DOMAIN} → API/WS subdomain for the signaling server (e.g. api.voidsfu.com)
+#            Both must have A records pointing to the Oracle VM and must be
+#            covered by the void-tls Certificate (SAN list below).
 #
-# --- DOMAIN ---
-# <YOUR_DOMAIN> and <YOUR_EMAIL> replaced by ${DOMAIN} (→ secrets.DOMAIN in CI)
 # ============================================================
 
 ---
@@ -108,7 +110,13 @@ spec:
       name: letsencrypt-prod-account-key
     solvers:
       - http01:
-          ingress: {}
+          # Explicitly target the Traefik ingress class shipped with k3s.
+          # Without this, cert-manager creates a generic Ingress that k3s
+          # Traefik may ignore, causing the ACME HTTP-01 challenge to time out
+          # and leaving void-tls-certs empty (Traefik then serves its default
+          # self-signed cert → UnknownIssuer on every client connection).
+          ingress:
+            ingressClassName: traefik
 
 ---
 # ============================================================
@@ -137,6 +145,10 @@ spec:
   commonName: ${DOMAIN}
   dnsNames:
     - ${DOMAIN}
+    # API subdomain — the Tauri desktop client and PROD_API config target this host.
+    # The signaling server routes in void-ingress are matched against api.${DOMAIN}.
+    # Both SANs must be in the same cert so Traefik can serve it for both hostnames.
+    - api.${DOMAIN}
   # Keep the same private key across renewals so the SPKI hash stays stable.
   # Tauri's TLS pinning is pinned to this hash — rotating the key would break
   # all deployed clients until a new release is pushed.
@@ -1260,6 +1272,30 @@ spec:
   entryPoints:
     - web
   routes:
+    # Signaling server — API, WebSocket and health (HTTP → HTTPS redirect)
+    # Routes are matched on api.${DOMAIN} (e.g. api.voidsfu.com), which is the
+    # hostname hardcoded in the Tauri desktop client (PROD_API / PROD_WS).
+    - match: Host(`api.${DOMAIN}`) && PathPrefix(`/api`)
+      kind: Rule
+      middlewares:
+        - name: void-https-redirect
+      services:
+        - name: signaling-server
+          port: 3001
+    - match: Host(`api.${DOMAIN}`) && Path(`/ws`)
+      kind: Rule
+      middlewares:
+        - name: void-https-redirect
+      services:
+        - name: signaling-server
+          port: 3001
+    - match: Host(`api.${DOMAIN}`) && Path(`/health`)
+      kind: Rule
+      middlewares:
+        - name: void-https-redirect
+      services:
+        - name: signaling-server
+          port: 3001
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/grafana`)
       kind: Rule
       middlewares:
@@ -1293,8 +1329,17 @@ spec:
 # TLS secret 'void-tls-certs' is auto-populated by the cert-manager
 # Certificate resource above (Let's Encrypt via ACME HTTP-01).
 #
-# The signaling server is NOT routed here: it binds directly on
-# the host via hostNetwork (WebSocket + WebRTC ICE UDP on port 3001).
+# Routing summary:
+#   api.${DOMAIN}/api/*   → signaling-server:3001  (REST API — auth, friends, servers…)
+#   api.${DOMAIN}/ws      → signaling-server:3001  (WebSocket signaling — Traefik proxies Upgrade)
+#   api.${DOMAIN}/health  → signaling-server:3001  (health probe, no middleware)
+#   ${DOMAIN}/grafana     → grafana:3000
+#   ${DOMAIN}/prometheus  → prometheus:9090     (prefix stripped by void-strip-monitoring-prefix)
+#   ${DOMAIN}/alertmanager → alertmanager:9093 (prefix stripped)
+#
+# The signaling server uses hostNetwork so its UDP ICE port (10000) is
+# reachable directly from external peers — this is intentional and unrelated
+# to the HTTP/WS routing above.
 # ============================================================
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -1310,6 +1355,36 @@ spec:
     # Cert auto-managed by cert-manager Certificate resource (letsencrypt-prod)
     secretName: void-tls-certs
   routes:
+    # ── Signaling server ──────────────────────────────────────────────────────
+    # Routes are matched on api.${DOMAIN} (e.g. api.voidsfu.com) — the hostname
+    # hardcoded in the Tauri client (PROD_API / PROD_WS in src/lib/config.ts)
+    # and in is_pinned_host() in src-tauri/src/tls.rs.
+    # The signaling server runs plain HTTP on port 3001 (hostNetwork).
+    # Traefik terminates TLS here and forwards HTTP to the ClusterIP service.
+    # void-forward-proto injects X-Forwarded-Proto: https so the Rust server
+    # knows the original request arrived over a secure connection.
+    - match: Host(`api.${DOMAIN}`) && PathPrefix(`/api`)
+      kind: Rule
+      middlewares:
+        - name: void-forward-proto
+      services:
+        - name: signaling-server
+          port: 3001
+    # WebSocket upgrade — Traefik transparently proxies the Upgrade handshake.
+    - match: Host(`api.${DOMAIN}`) && Path(`/ws`)
+      kind: Rule
+      middlewares:
+        - name: void-forward-proto
+      services:
+        - name: signaling-server
+          port: 3001
+    # Health endpoint — no middleware required, used by load-balancer probes.
+    - match: Host(`api.${DOMAIN}`) && Path(`/health`)
+      kind: Rule
+      services:
+        - name: signaling-server
+          port: 3001
+    # ── Monitoring stack ──────────────────────────────────────────────────────
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/grafana`)
       kind: Rule
       middlewares:

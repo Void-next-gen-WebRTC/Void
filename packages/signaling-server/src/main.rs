@@ -148,9 +148,13 @@ async fn main() {
         }
     };
 
-    // On utilise le même serveur HTTP simple pour DEV et PROD.
-    // En PROD, Nginx (port 443) réceptionne le HTTPS et le "traduit" en HTTP
-    // vers notre port 3001.
+    // The server runs plain HTTP on all environments.
+    // In production, Traefik (k3s, port 443) terminates TLS via cert-manager
+    // (Let's Encrypt) and reverse-proxies HTTPS → HTTP to port 3001.
+    // The IngressRoute in deployment-k3s.yaml routes /api/*, /ws and /health
+    // to this service. Traefik injects X-Forwarded-Proto: https via the
+    // void-forward-proto middleware so the application knows the original
+    // request arrived over a secure connection.
     println!(
         "🚀 SFU Server running on http://{} | Mode: {} | ICE UDP: port {}",
         addr,

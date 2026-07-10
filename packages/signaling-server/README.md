@@ -364,7 +364,7 @@ Output: `target/doc/signaling_server/index.html`.
 
 | Layer | Protection |
 |---|---|
-| **Transport** | TLS 1.3 (rustls). |
+| **Transport** | TLS terminated by Traefik (k3s, Let's Encrypt via cert-manager). The server listens on plain HTTP port 3001; Traefik handles edge-to-client encryption. The Tauri desktop client pins the certificate SPKI hash compiled into the binary (`PRIMARY_PIN_HASH` / `BACKUP_PIN_HASH`). |
 | **Media** | DTLS/SRTP enforced by `void-sfu` for every WebRTC track. |
 | **Auth** | Argon2id password hashing, JWT Bearer with 7-day expiry, replay-protected critical mutations (nonce). |
 | **Rate-limit** | Per-IP and per-token sliding windows; persistent ban store with recidivism tracking. |
@@ -727,9 +727,8 @@ Sortie : `target/doc/signaling_server/index.html`.
 
 | Couche | Protection |
 |---|---|
-| **Transport** | TLS 1.3 (rustls). |
+| **Transport** | TLS terminé par Traefik (k3s, Let's Encrypt via cert-manager). Le serveur écoute en HTTP plain sur le port 3001 ; Traefik gère l'encryption edge-to-client. Le client desktop Tauri pine le hash SPKI du certificat compilé dans le binaire (`PRIMARY_PIN_HASH` / `BACKUP_PIN_HASH`). |
 | **Média** | DTLS/SRTP imposé par `void-sfu` pour tous les tracks WebRTC. |
-| **Auth** | Hachage Argon2id, JWT Bearer 7 jours, mutations critiques protégées contre le rejeu (nonce). |
 | **Rate-limit** | Fenêtres glissantes par IP et par token ; ban store persistant avec récidive. |
 | **Mémoire** | Memory safety Rust + zéro `unsafe` dans `void-sfu` — pas de buffer overflow, pas de panic sur entrée réseau. |
 
