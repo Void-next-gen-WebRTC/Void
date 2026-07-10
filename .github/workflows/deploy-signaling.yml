@@ -188,13 +188,26 @@ jobs:
 
       - name: Deploy on Oracle VM via kubectl
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          GHCR_ACTOR: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
+          envs: GHCR_ACTOR,GHCR_TOKEN
           script: |
             echo "=== Applying k3s manifest ==="
             cd ~/void
+
+            # Refresh GHCR pull secret so k3s can pull the private image.
+            # Uses a long-lived PAT (GHCR_TOKEN) instead of the ephemeral GITHUB_TOKEN.
+            kubectl create secret docker-registry ghcr-secret \
+              --docker-server=ghcr.io \
+              --docker-username="${GHCR_ACTOR}" \
+              --docker-password="${GHCR_TOKEN}" \
+              -n void \
+              --dry-run=client -o yaml | kubectl apply -f -
 
             # Sync Grafana dashboard ConfigMap (idempotent)
             kubectl create configmap grafana-dashboards-json \
