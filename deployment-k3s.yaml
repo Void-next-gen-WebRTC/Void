@@ -722,9 +722,6 @@ spec:
         runAsGroup: 65534
         fsGroup: 65534
 
-      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
 
       containers:
         - name: prometheus
@@ -832,9 +829,6 @@ spec:
         runAsGroup: 472
         fsGroup: 472
 
-      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
 
       containers:
         - name: grafana
@@ -973,9 +967,6 @@ spec:
         runAsGroup: 65534
         fsGroup: 65534
 
-      # hostNetwork binds directly on the host interface — mirrors docker-compose network_mode: host
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
 
       # Replicates the sed-substitution performed in deploy-signaling.yml:
       #   sed -i "s|REPLACE_SMTP_USER|...|g" docker/alertmanager.yml
