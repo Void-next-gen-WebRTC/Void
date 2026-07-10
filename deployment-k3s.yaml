@@ -733,7 +733,7 @@ spec:
             - '--storage.tsdb.retention.time=30d'
             - '--web.enable-lifecycle'
             - '--web.external-url=https://${DOMAIN}/prometheus/'
-            - '--web.route-prefix=/prometheus'
+            - '--web.route-prefix=/'
           ports:
             - name: http
               containerPort: 9090
@@ -1027,7 +1027,7 @@ spec:
             - '--config.file=/etc/alertmanager/alertmanager.yml'
             - '--storage.path=/alertmanager'
             - '--web.external-url=https://${DOMAIN}/alertmanager/'
-            - '--web.route-prefix=/alertmanager'
+            - '--web.route-prefix=/'
           ports:
             - name: http
               containerPort: 9093
@@ -1207,6 +1207,28 @@ spec:
 
 ---
 # ============================================================
+# Traefik Middleware — Strip /prometheus and /alertmanager prefix
+#
+# Prometheus and Alertmanager run with --web.route-prefix=/ so they
+# serve their API at the root path. Traefik must strip the sub-path
+# before forwarding so that both external users (browser) and internal
+# callers (Grafana datasource via ClusterIP) use the same path space.
+#
+# Grafana is intentionally excluded: it handles its own sub-path via
+# GF_SERVER_SERVE_FROM_SUB_PATH=true and must receive the full path.
+# ============================================================
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: void-strip-monitoring-prefix
+  namespace: void
+spec:
+  stripPrefixRegex:
+    regex:
+      - "^/(prometheus|alertmanager)"
+
+---
+# ============================================================
 # Traefik Middleware — HTTP → HTTPS redirect (permanent 301)
 # Applied on the 'web' entrypoint (port 80) to force all traffic
 # onto TLS. The 'websecure' IngressRoute handles the actual routing.
@@ -1298,6 +1320,7 @@ spec:
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/prometheus`)
       kind: Rule
       middlewares:
+        - name: void-strip-monitoring-prefix
         - name: void-forward-proto
       services:
         - name: prometheus
@@ -1305,6 +1328,7 @@ spec:
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/alertmanager`)
       kind: Rule
       middlewares:
+        - name: void-strip-monitoring-prefix
         - name: void-forward-proto
       services:
         - name: alertmanager
