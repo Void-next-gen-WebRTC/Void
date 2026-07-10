@@ -44,7 +44,6 @@ services:
       - '--storage.tsdb.retention.time=30d'
       - '--web.enable-lifecycle'
       - '--web.external-url=https://${DOMAIN}/prometheus/'
-      - '--web.route-prefix=/'
     restart: unless-stopped
 
   grafana:
@@ -62,8 +61,8 @@ services:
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource
       - GF_PROVISIONING_ENABLED=true
-      - GF_SERVER_DOMAIN=${DOMAIN}
-      - GF_SERVER_ROOT_URL=https://%(domain)s/grafana/
+      - GF-SERVER_DOMAIN=${DOMAIN}
+      - GF_SERVER_ROOT_URL=%(protocol)s://%(domain)s/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
 
   alertmanager:
@@ -77,7 +76,6 @@ services:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
       - '--storage.path=/alertmanager'
       - '--web.external-url=https://${DOMAIN}/alertmanager/'
-      - '--web.route-prefix=/'
     restart: unless-stopped
 
   node-exporter:

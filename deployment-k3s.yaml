@@ -753,14 +753,14 @@ spec:
 
           livenessProbe:
             httpGet:
-              path: /prometheus/-/healthy
+              path: /-/healthy
               port: 9090
             initialDelaySeconds: 20
             periodSeconds: 30
 
           readinessProbe:
             httpGet:
-              path: /prometheus/-/ready
+              path: /-/ready
               port: 9090
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -1043,14 +1043,14 @@ spec:
 
           livenessProbe:
             httpGet:
-              path: /alertmanager/-/healthy
+              path: /-/healthy
               port: 9093
             initialDelaySeconds: 15
             periodSeconds: 30
 
           readinessProbe:
             httpGet:
-              path: /alertmanager/-/ready
+              path: /-/ready
               port: 9093
             initialDelaySeconds: 10
             periodSeconds: 10
