@@ -24,8 +24,9 @@
 #      --from-literal=PUBLIC_IP='<secrets.PUBLIC_IP>' \
 #      -n void
 #
-# 2. Grafana admin (→ secrets.GF_ADMIN_PASSWORD):
+# 2. Grafana admin (→ secrets.GF_ADMIN_USER, secrets.GF_ADMIN_PASSWORD):
 #    kubectl create secret generic grafana-secrets \
+#      --from-literal=GF_SECURITY_ADMIN_USER='<secrets.GF_ADMIN_USER>' \
 #      --from-literal=GF_SECURITY_ADMIN_PASSWORD='<secrets.GF_ADMIN_PASSWORD>' \
 #      -n void
 #
@@ -841,7 +842,10 @@ spec:
 
           env:
             - name: GF_SECURITY_ADMIN_USER
-              value: "admin"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secrets
+                  key: GF_SECURITY_ADMIN_USER
             - name: GF_SECURITY_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:

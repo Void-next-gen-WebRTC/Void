@@ -15,6 +15,8 @@
 #   ORACLE_SSH_KEY       — SSH private key for ubuntu@ORACLE_HOST
 #   DOMAIN               — public domain for envsubst
 #   GHCR_TOKEN           — long-lived PAT with read:packages scope (for k3s pull secret)
+#   GF_ADMIN_USER        — Grafana admin username (maps to GF_SECURITY_ADMIN_USER)
+#   GF_ADMIN_PASSWORD    — Grafana admin password (maps to GF_SECURITY_ADMIN_PASSWORD)
 #   SLACK_WEBHOOK_URL    — Slack notifications
 #
 # One-time cluster bootstrap (run manually once on the VM):
@@ -191,11 +193,13 @@ jobs:
         env:
           GHCR_ACTOR: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GF_ADMIN_USER: ${{ secrets.GF_ADMIN_USER }}
+          GF_ADMIN_PASSWORD: ${{ secrets.GF_ADMIN_PASSWORD }}
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          envs: GHCR_ACTOR,GHCR_TOKEN
+          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD
           script: |
             # SSH sessions do not source .bashrc — set KUBECONFIG explicitly
             # so kubectl finds ~/.kube/config instead of the root-only /etc/rancher/k3s/k3s.yaml
@@ -216,6 +220,20 @@ jobs:
                 --dry-run=client -o yaml | kubectl apply -f -
             else
               echo "⚠️  GHCR_TOKEN not set — skipping pull secret refresh. Add it to GitHub secrets."
+            fi
+
+            # Upsert Grafana admin credentials.
+            # GitHub secret GF_ADMIN_USER  → k8s key GF_SECURITY_ADMIN_USER
+            # GitHub secret GF_ADMIN_PASSWORD → k8s key GF_SECURITY_ADMIN_PASSWORD
+            if [ -n "${GF_ADMIN_USER}" ] && [ -n "${GF_ADMIN_PASSWORD}" ]; then
+              kubectl create secret generic grafana-secrets \
+                --from-literal=GF_SECURITY_ADMIN_USER="${GF_ADMIN_USER}" \
+                --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GF_ADMIN_PASSWORD}" \
+                -n void \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "✅ grafana-secrets upserted"
+            else
+              echo "⚠️  GF_ADMIN_USER or GF_ADMIN_PASSWORD not set — skipping grafana-secrets upsert."
             fi
 
             # Sync Grafana dashboard ConfigMap (idempotent)
