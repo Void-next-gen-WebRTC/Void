@@ -197,6 +197,10 @@ jobs:
           key: ${{ secrets.ORACLE_SSH_KEY }}
           envs: GHCR_ACTOR,GHCR_TOKEN
           script: |
+            # SSH sessions do not source .bashrc — set KUBECONFIG explicitly
+            # so kubectl finds ~/.kube/config instead of the root-only /etc/rancher/k3s/k3s.yaml
+            export KUBECONFIG=/home/ubuntu/.kube/config
+
             echo "=== Applying k3s manifest ==="
             cd ~/void
 
