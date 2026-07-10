@@ -732,6 +732,7 @@ spec:
             - '--storage.tsdb.retention.time=30d'
             - '--web.enable-lifecycle'
             - '--web.external-url=https://${DOMAIN}/prometheus/'
+            - '--web.route-prefix=/prometheus'
           ports:
             - name: http
               containerPort: 9090
@@ -1022,6 +1023,7 @@ spec:
             - '--config.file=/etc/alertmanager/alertmanager.yml'
             - '--storage.path=/alertmanager'
             - '--web.external-url=https://${DOMAIN}/alertmanager/'
+            - '--web.route-prefix=/alertmanager'
           ports:
             - name: http
               containerPort: 9093
@@ -1178,21 +1180,6 @@ spec:
       protocol: TCP
   type: ClusterIP
 
----
-# ============================================================
-# Traefik Middleware — Strip sub-path prefix
-# Named 'void-strip-prefix' so the IngressRoute below can
-# reference it directly by name (no namespace-name@kubernetescrd needed).
-# ============================================================
-apiVersion: traefik.io/v1alpha1
-kind: Middleware
-metadata:
-  name: void-strip-prefix
-  namespace: void
-spec:
-  stripPrefixRegex:
-    regex:
-      - "^/(grafana|prometheus|alertmanager)"
 
 ---
 # ============================================================
@@ -1300,7 +1287,6 @@ spec:
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/grafana`)
       kind: Rule
       middlewares:
-        - name: void-strip-prefix
         - name: void-forward-proto
       services:
         - name: grafana
@@ -1308,7 +1294,6 @@ spec:
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/prometheus`)
       kind: Rule
       middlewares:
-        - name: void-strip-prefix
         - name: void-forward-proto
       services:
         - name: prometheus
@@ -1316,7 +1301,6 @@ spec:
     - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/alertmanager`)
       kind: Rule
       middlewares:
-        - name: void-strip-prefix
         - name: void-forward-proto
       services:
         - name: alertmanager
