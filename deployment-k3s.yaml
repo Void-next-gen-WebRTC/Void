@@ -44,14 +44,25 @@
 #      --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
 #      -n void
 #
-# 5. GitHub secret KUBE_CONFIG (base64-encoded k3s kubeconfig — one-time setup):
+# 5. GHCR pull secret (image is private — requires a PAT with read:packages scope).
+#    Create a PAT at: GitHub → Settings → Developer settings → Tokens → Fine-grained
+#    Permissions: Contents: read, Packages: read  (no expiry recommended)
+#    Then run on the VM:
+#    kubectl create secret docker-registry ghcr-secret \
+#      --docker-server=ghcr.io \
+#      --docker-username=<github-username> \
+#      --docker-password=<PAT-with-read-packages> \
+#      -n void
+#    Also add the PAT as GitHub secret GHCR_TOKEN so the CI auto-refreshes it.
+#
+# 6. GitHub secret KUBE_CONFIG (base64-encoded k3s kubeconfig — one-time setup):
 #    On the Oracle VM:
 #      sudo cat /etc/rancher/k3s/k3s.yaml \
 #        | sed 's/127.0.0.1/<secrets.ORACLE_HOST>/g' \
 #        | base64 -w0
 #    Then add the output as GitHub secret: KUBE_CONFIG
 #
-# 6. Apply:  CI runs envsubst < deployment-k3s.yaml | kubectl apply -f -
+# 7. Apply:  CI runs envsubst < deployment-k3s.yaml | kubectl apply -f -
 #            Variables substituted: ${DOMAIN}, ${SIGNALING_IMAGE}
 #
 # --- DOMAIN ---
@@ -127,6 +138,11 @@ spec:
   commonName: ${DOMAIN}
   dnsNames:
     - ${DOMAIN}
+  # Keep the same private key across renewals so the SPKI hash stays stable.
+  # Tauri's TLS pinning is pinned to this hash — rotating the key would break
+  # all deployed clients until a new release is pushed.
+  privateKey:
+    rotationPolicy: Never
   # Renew 30 days before expiry (Let's Encrypt 90-day certs)
   renewBefore: 720h
 
@@ -560,6 +576,11 @@ spec:
           # Image substituted by CI via envsubst: SIGNALING_IMAGE=ghcr.io/<org>/void-signaling-server:<sha>
           image: ${SIGNALING_IMAGE}
           imagePullPolicy: Always
+
+      # ghcr-secret is created by the CI on every deploy (idempotent).
+      # Bootstrap: see pre-flight checklist step 5 above.
+      imagePullSecrets:
+        - name: ghcr-secret
 
           securityContext:
             # Mirrors 'privileged: true' from docker-compose (needed for raw socket access)
@@ -1186,7 +1207,7 @@ spec:
 # Named 'void-strip-prefix' so the IngressRoute below can
 # reference it directly by name (no namespace-name@kubernetescrd needed).
 # ============================================================
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
   name: void-strip-prefix
@@ -1210,7 +1231,7 @@ spec:
 # The signaling server is NOT routed here: it binds directly on
 # the host via hostNetwork (WebSocket + WebRTC ICE UDP on port 3001).
 # ============================================================
-apiVersion: traefik.containo.us/v1alpha1
+apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
 metadata:
   name: void-ingress

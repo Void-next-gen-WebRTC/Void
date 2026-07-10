@@ -7,13 +7,16 @@
 # Same approach as the old docker-compose deploy: build on GitHub servers, push image,
 # then SSH to the VM to apply. No self-hosted runner needed.
 #
-# Required GitHub secrets (same as before + DOMAIN):
+# Required GitHub secrets (same as before + DOMAIN + GHCR_TOKEN):
 #   PRIMARY_PIN_HASH     — build-time Rust env var (baked into binary)
 #   BACKUP_PIN_HASH      — build-time Rust env var (baked into binary)
 #   ORACLE_HOST          — Oracle VM public IP
 #   ORACLE_SSH_KEY       — SSH private key for ubuntu@ORACLE_HOST
-#   DOMAIN               — public domain for envsubst in deployment-k3s.yaml
+#   DOMAIN               — public domain (api.voidsfu.com) for envsubst
 #   SLACK_WEBHOOK_URL    — Slack notifications
+#   GHCR_TOKEN           — GitHub PAT with read:packages (for k3s image pull)
+#                          Create at: GitHub → Settings → Developer settings → Tokens
+#                          Permissions: Packages: read — no expiry recommended
 #
 # One-time cluster bootstrap (run manually once on the VM):
 #   See deployment-k3s.yaml pre-flight checklist for kubectl create secret commands.
