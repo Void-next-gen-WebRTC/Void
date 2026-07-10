@@ -573,14 +573,13 @@ spec:
 
       containers:
         - name: signaling-server
-          # Image substituted by CI via envsubst: SIGNALING_IMAGE=ghcr.io/<org>/void-signaling-server:<sha>
+          # Image built on the VM and imported into k3s containerd via:
+          # docker save | k3s ctr images import
+          # imagePullPolicy: Never tells k3s to use the local containerd image
+          # without attempting any registry pull.
           image: ${SIGNALING_IMAGE}
-          imagePullPolicy: Always
+          imagePullPolicy: Never
 
-      # ghcr-secret is created by the CI on every deploy (idempotent).
-      # Bootstrap: see pre-flight checklist step 5 above.
-      imagePullSecrets:
-        - name: ghcr-secret
 
           securityContext:
             # Mirrors 'privileged: true' from docker-compose (needed for raw socket access)

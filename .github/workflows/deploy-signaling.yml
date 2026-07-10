@@ -1,25 +1,207 @@
 # Copyright (c) 2024 Void — Business Source License 1.1
 # See LICENSE file for full terms. Production use requires a commercial license.
 #
-# Deploy pipeline: cross-compile ARM64 binary on GitHub runner → push image to GHCR
-#                  → SSH to Oracle VM → kubectl apply deployment-k3s.yaml
+# Deploy pipeline: cross-compile ARM64 binary on GitHub runner → SCP to Oracle VM
+#                  → build Docker image ON the VM → import into k3s containerd
+#                  → kubectl apply deployment-k3s.yaml
 #
-# Same approach as the old docker-compose deploy: build on GitHub servers, push image,
-# then SSH to the VM to apply. No self-hosted runner needed.
+# No external registry needed. The image is built natively on the ARM64 VM
+# (Docker is already installed) and imported directly into k3s via containerd.
+# imagePullPolicy: Never prevents k3s from trying to pull from any registry.
 #
-# Required GitHub secrets (same as before + DOMAIN + GHCR_TOKEN):
+# Required GitHub secrets:
 #   PRIMARY_PIN_HASH     — build-time Rust env var (baked into binary)
 #   BACKUP_PIN_HASH      — build-time Rust env var (baked into binary)
 #   ORACLE_HOST          — Oracle VM public IP
 #   ORACLE_SSH_KEY       — SSH private key for ubuntu@ORACLE_HOST
 #   DOMAIN               — public domain (api.voidsfu.com) for envsubst
 #   SLACK_WEBHOOK_URL    — Slack notifications
-#   GHCR_TOKEN           — GitHub PAT with read:packages (for k3s image pull)
-#                          Create at: GitHub → Settings → Developer settings → Tokens
-#                          Permissions: Packages: read — no expiry recommended
 #
 # One-time cluster bootstrap (run manually once on the VM):
 #   See deployment-k3s.yaml pre-flight checklist for kubectl create secret commands.
+
+name: Deploy Signaling Server + Monitoring
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/signaling-server/**'
+      - 'packages/void-sfu/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/deploy-signaling.yml'
+      - 'Dockerfile'
+      - 'deployment-k3s.yaml'
+      - 'docker/**'
+  workflow_dispatch:
+
+env:
+  RUST_TOOLCHAIN: stable
+  TARGET_PLATFORM: aarch64-unknown-linux-gnu
+  # Image built locally on the VM — no external registry.
+  # Must match the image name used in deployment-k3s.yaml.
+  IMAGE: ghcr.io/void-next-gen-webrtc/void-signaling-server
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Run the test suite before any build or deploy step.
+  # ─────────────────────────────────────────────────────────────────────────
+  test:
+    runs-on: ubuntu-latest
+    env:
+      PRIMARY_PIN_HASH: ${{ secrets.PRIMARY_PIN_HASH }}
+      BACKUP_PIN_HASH: ${{ secrets.BACKUP_PIN_HASH }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - name: Run void-sfu tests
+        run: cargo test -p void-sfu --verbose
+
+      - name: Run signaling-server tests
+        run: cargo test -p signaling-server --verbose
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Cross-compile ARM64 binary → SCP to Oracle VM → build Docker image on VM
+  # → import into k3s containerd → kubectl apply.
+  # No registry push: imagePullPolicy: Never lets k3s use the local image.
+  # ─────────────────────────────────────────────────────────────────────────
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (ARM64 cross-compilation)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ env.TARGET_PLATFORM }}
+
+      - name: Install ARM64 cross-linker + envsubst
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu gettext-base
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Build binary (linux/aarch64)
+        env:
+          PRIMARY_PIN_HASH: ${{ secrets.PRIMARY_PIN_HASH }}
+          BACKUP_PIN_HASH: ${{ secrets.BACKUP_PIN_HASH }}
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target ${{ env.TARGET_PLATFORM }} -p signaling-server
+
+      # Stage the binary next to the Dockerfile so the VM build context is ready
+      - name: Stage binary for Docker build context
+        run: cp target/${{ env.TARGET_PLATFORM }}/release/signaling-server signaling-server
+
+      # Render the manifest (DOMAIN + IMAGE substitution only — no registry push needed)
+      - name: Render k3s manifest with envsubst
+        env:
+          DOMAIN: ${{ secrets.DOMAIN }}
+          SIGNALING_IMAGE: ${{ env.IMAGE }}:latest
+        run: |
+          envsubst '$DOMAIN,$SIGNALING_IMAGE' < deployment-k3s.yaml > deployment-k3s-rendered.yaml
+
+      # Copy binary, Dockerfile, rendered manifest and monitoring configs to the VM
+      - name: Copy build artifacts to Oracle VM
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          source: "signaling-server,Dockerfile,deployment-k3s-rendered.yaml,docker/"
+          target: "/home/ubuntu/void"
+
+      - name: Build image on VM + import into k3s + apply manifest
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            # SSH sessions do not source .bashrc — set KUBECONFIG explicitly
+            export KUBECONFIG=/home/ubuntu/.kube/config
+
+            echo "=== Building Docker image on VM (native ARM64) ==="
+            cd ~/void
+
+            # Build natively on the ARM64 VM — no QEMU needed
+            sudo docker build -t ${{ env.IMAGE }}:latest .
+
+            # Import into k3s containerd (bypasses any registry)
+            echo "=== Importing image into k3s containerd ==="
+            sudo docker save ${{ env.IMAGE }}:latest | sudo k3s ctr images import -
+
+            echo "=== Syncing Grafana dashboard ConfigMap ==="
+            kubectl create configmap grafana-dashboards-json \
+              --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
+              -n void --dry-run=client -o yaml | kubectl apply -f -
+
+            echo "=== Applying k3s manifest ==="
+            kubectl apply -f deployment-k3s-rendered.yaml
+
+            echo "=== Rolling out signaling-server with new image ==="
+            kubectl rollout restart daemonset/signaling-server -n void
+            kubectl rollout status daemonset/signaling-server -n void --timeout=120s
+
+            echo "=== Waiting for monitoring stack ==="
+            kubectl rollout status deployment/prometheus   -n void --timeout=90s
+            kubectl rollout status deployment/grafana      -n void --timeout=90s
+            kubectl rollout status deployment/alertmanager -n void --timeout=90s
+
+            echo "=== Health checks ==="
+            curl -f --max-time 10 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
+
+            echo "🚀 Déploiement k3s terminé avec succès !"
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Slack notification regardless of success or failure.
+  # ─────────────────────────────────────────────────────────────────────────
+  notify:
+    needs: build-and-deploy
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Slack Notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "Déploiement SFU k3s: ${{ job.status }} — ${{ github.event.head_commit.message }}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 
 name: Deploy Signaling Server + Monitoring
 
@@ -206,12 +388,17 @@ jobs:
 
             # Refresh GHCR pull secret so k3s can pull the private image.
             # Uses a long-lived PAT (GHCR_TOKEN) instead of the ephemeral GITHUB_TOKEN.
-            kubectl create secret docker-registry ghcr-secret \
-              --docker-server=ghcr.io \
-              --docker-username="${GHCR_ACTOR}" \
-              --docker-password="${GHCR_TOKEN}" \
-              -n void \
-              --dry-run=client -o yaml | kubectl apply -f -
+            # Skip if GHCR_TOKEN secret is not yet configured (first bootstrap).
+            if [ -n "${GHCR_TOKEN}" ]; then
+              kubectl create secret docker-registry ghcr-secret \
+                --docker-server=ghcr.io \
+                --docker-username="${GHCR_ACTOR}" \
+                --docker-password="${GHCR_TOKEN}" \
+                -n void \
+                --dry-run=client -o yaml | kubectl apply -f -
+            else
+              echo "⚠️  GHCR_TOKEN not set — skipping pull secret refresh. Add it to GitHub secrets."
+            fi
 
             # Sync Grafana dashboard ConfigMap (idempotent)
             kubectl create configmap grafana-dashboards-json \
