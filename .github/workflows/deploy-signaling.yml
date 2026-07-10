@@ -38,8 +38,9 @@ on:
 env:
   RUST_TOOLCHAIN: stable
   TARGET_PLATFORM: aarch64-unknown-linux-gnu
-  # GHCR image — repository_owner works for personal accounts and orgs alike
-  IMAGE: ghcr.io/${{ github.repository_owner }}/void-signaling-server
+  # IMAGE is set to lowercase in the first build step (GHCR requires all-lowercase names).
+  # github.repository_owner may contain uppercase (e.g. Void-next-gen-WebRTC) which
+  # would make docker/build-push-action fail with "repository name must be lowercase".
 
 jobs:
   # ─────────────────────────────────────────────────────────────────────────
@@ -90,6 +91,14 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      # GHCR requires all-lowercase image names. github.repository_owner preserves
+      # original casing (e.g. Void-next-gen-WebRTC) so we normalise it here and
+      # expose IMAGE as a job-level env var for all subsequent steps.
+      - name: Set lowercase image name
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "IMAGE=ghcr.io/${OWNER}/void-signaling-server" >> $GITHUB_ENV
 
       - name: Install Rust toolchain (ARM64 cross-compilation)
         uses: dtolnay/rust-toolchain@stable
