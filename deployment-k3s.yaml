@@ -1233,21 +1233,21 @@ spec:
     # Cert auto-managed by cert-manager Certificate resource (letsencrypt-prod)
     secretName: void-tls-certs
   routes:
-    - match: Host(`${DOMAIN}`) && PathPrefix(`/grafana`)
+    - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/grafana`)
       kind: Rule
       middlewares:
         - name: void-strip-prefix
       services:
         - name: grafana
           port: 3000
-    - match: Host(`${DOMAIN}`) && PathPrefix(`/prometheus`)
+    - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/prometheus`)
       kind: Rule
       middlewares:
         - name: void-strip-prefix
       services:
         - name: prometheus
           port: 9090
-    - match: Host(`${DOMAIN}`) && PathPrefix(`/alertmanager`)
+    - match: (Host(`${DOMAIN}`) || Host(`www.${DOMAIN}`)) && PathPrefix(`/alertmanager`)
       kind: Rule
       middlewares:
         - name: void-strip-prefix
