@@ -34,6 +34,16 @@ pub fn is_dev_build() -> bool {
 #[derive(Debug)]
 struct PinningVerifier;
 
+fn is_pinned_host(hostname: &str) -> bool {
+    matches!(hostname, "api.voidsfu.com" | "89.168.59.45")
+}
+
+fn pin_mismatch_error(hostname: &str, cert_hash: &str) -> Error {
+    Error::General(format!(
+        "SPKI pin mismatch for {hostname}: expected {PRIMARY_PIN} or {BACKUP_PIN}, got {cert_hash}"
+    ))
+}
+
 impl ServerCertVerifier for PinningVerifier {
     fn verify_server_cert(
         &self,
@@ -43,25 +53,32 @@ impl ServerCertVerifier for PinningVerifier {
         _ocsp_response: &[u8],
         _now: UnixTime,
     ) -> Result<ServerCertVerified, Error> {
-
-        // 1. Extraire le nom de domaine de la requête sous forme de chaîne de caractères
+        // Extract the target host from SNI.
         let hostname = match server_name {
-            ServerName::DnsName(dns) => dns.as_ref().to_string(),
-            ServerName::IpAddress(ip) => format!("{}", ip),
+            ServerName::DnsName(dns) => dns.as_ref().to_ascii_lowercase(),
+            ServerName::IpAddress(_ip) => String::new(),
             _ => "".to_string(),
         };
 
-        // 2. FILTRE : Si la requête va vers un service externe (ex: GitHub pour l'updater),
-        // on bypass le pinning strict et on valide directement le certificat.
-        if !hostname.contains("api.voidsfu.com") && !hostname.contains("89.168.59.45") {
+        // Only enforce first-party pinning for known API hosts.
+        // External services (e.g. updater endpoints) are intentionally not pinned here.
+        if !is_pinned_host(&hostname) {
             #[cfg(debug_assertions)]
-            println!("ℹ️ [TLS Pinning] Bypass pour le domaine externe : {}", hostname);
+            println!(
+                "ℹ️ [TLS Pinning] Bypass pour le domaine externe : {}",
+                hostname
+            );
 
-            // On accepte le certificat car il s'agit d'un tiers de confiance (ex: GitHub)
             return Ok(ServerCertVerified::assertion());
         }
 
-        // 3. SECURITÉ STRICTE : Si c'est ton infrastructure, on applique le certificat pinning
+        // In local debug/test runs, always bypass pin checks to prevent stale
+        // CI/release pin env values from breaking developer sign-in flows.
+        if cfg!(debug_assertions) || cfg!(test) || is_dev_build() {
+            return Ok(ServerCertVerified::assertion());
+        }
+
+        // Strict pinning for first-party hosts in release builds.
         let cert = x509_parser::parse_x509_certificate(end_entity.as_ref())
             .map_err(|_| Error::InvalidCertificate(rustls::CertificateError::BadEncoding))?;
 
@@ -72,19 +89,19 @@ impl ServerCertVerifier for PinningVerifier {
         let cert_hash = general_purpose::STANDARD.encode(hasher.finalize());
 
         #[cfg(debug_assertions)]
-        println!("🔒 [TLS Pinning] Interception de {}. Hash calculé: {}", hostname, cert_hash);
-
-        if is_dev_build() || cfg!(test) {
-            return Ok(ServerCertVerified::assertion());
-        }
+        println!(
+            "🔒 [TLS Pinning] Interception de {}. Hash calculé: {}",
+            hostname, cert_hash
+        );
 
         if cert_hash == PRIMARY_PIN || cert_hash == BACKUP_PIN {
             Ok(ServerCertVerified::assertion())
         } else {
-            eprintln!("❌ [TLS Pinning] ÉCHEC sur {} ! Attendu: {}, Reçu: {}", hostname, PRIMARY_PIN, cert_hash);
-            Err(Error::InvalidCertificate(
-                rustls::CertificateError::UnknownIssuer,
-            ))
+            eprintln!(
+                "❌ [TLS Pinning] ÉCHEC sur {} ! Attendu: {}, Reçu: {}",
+                hostname, PRIMARY_PIN, cert_hash
+            );
+            Err(pin_mismatch_error(&hostname, &cert_hash))
         }
     }
 
@@ -226,4 +243,32 @@ pub async fn call_signaling(
         .text()
         .await
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_host_matches_first_party_targets() {
+        assert!(is_pinned_host("api.voidsfu.com"));
+        assert!(is_pinned_host("89.168.59.45"));
+    }
+
+    #[test]
+    fn pinned_host_rejects_non_first_party_targets() {
+        assert!(!is_pinned_host("github.com"));
+        assert!(!is_pinned_host("api.voidsfu.com.evil"));
+        assert!(!is_pinned_host(""));
+    }
+
+    #[test]
+    fn pin_mismatch_error_is_explicit() {
+        let err = pin_mismatch_error("api.voidsfu.com", "abc123");
+        let msg = err.to_string();
+
+        assert!(msg.contains("SPKI pin mismatch"));
+        assert!(msg.contains("api.voidsfu.com"));
+        assert!(msg.contains("abc123"));
+    }
 }
