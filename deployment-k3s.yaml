@@ -107,9 +107,7 @@ spec:
       name: letsencrypt-prod-account-key
     solvers:
       - http01:
-          ingress:
-            # k3s built-in Traefik handles the ACME HTTP-01 challenge
-            class: traefik
+          ingress: {}
 
 ---
 # ============================================================
