@@ -1,4 +1,4 @@
-import { X, User, Mic, Gamepad2, RefreshCw } from 'lucide-react';
+import { X, User, Mic, Gamepad2, RefreshCw, FlaskConical } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { SettingsModalProps } from '../../models/ui/settingsModalProps.model';
@@ -6,9 +6,10 @@ import { ProfileSettings } from '../settings/ProfileSettings';
 import { VoiceVideoSettings } from '../settings/VoiceVideoSettings';
 import { ActivitySettings } from '../settings/ActivitySettings';
 import { UpdateSettings } from '../settings/UpdateSettings';
+import { ExperimentalSettings } from '../settings/ExperimentalSettings';
 
 export const SettingsModal = ({ isOpen, onClose, updateAvailable, updateStatus, triggerUpdate, checkForUpdate }: SettingsModalProps) => {
-    const [activeTab, setActiveTab] = useState<'profile' | 'voice' | 'activity' | 'update'>('profile');
+    const [activeTab, setActiveTab] = useState<'profile' | 'voice' | 'activity' | 'update' | 'experimental'>('profile');
     const [mounted, setMounted] = useState(false);
 
     useEffect(() => {
@@ -96,6 +97,23 @@ export const SettingsModal = ({ isOpen, onClose, updateAvailable, updateStatus, 
                             {updateAvailable && <span className="w-2.5 h-2.5 bg-red-400 rounded-full" />}
                         </button>
                     </nav>
+
+                    <div className="my-4 h-px bg-white/5 mx-2" />
+
+                    <nav className="w-full flex flex-col gap-1">
+                        <div className="px-2 pb-2 text-[10px] font-black text-amber-500 uppercase tracking-widest">Avancé</div>
+                        <button
+                            className={`flex items-center gap-3 px-3 py-2 rounded font-bold text-[13px] transition-all duration-200 ${
+                                activeTab === 'experimental'
+                                ? 'text-white bg-white/[0.08]'
+                                : 'text-gray-400 hover:bg-white/[0.04] hover:text-gray-200'
+                            }`}
+                            onClick={() => setActiveTab('experimental')}
+                        >
+                            <FlaskConical size={16} />
+                            Expérimental
+                        </button>
+                    </nav>
                 </div>
                 
                 {/* Main Content Area */}
@@ -123,6 +141,7 @@ export const SettingsModal = ({ isOpen, onClose, updateAvailable, updateStatus, 
                                     checkForUpdate={checkForUpdate}
                                 />
                             )}
+                            {activeTab === 'experimental' && <ExperimentalSettings />}
                         </div>
                     </div>
                 </div>
