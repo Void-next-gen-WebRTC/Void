@@ -35,7 +35,7 @@ pub fn is_dev_build() -> bool {
 struct PinningVerifier;
 
 fn is_pinned_host(hostname: &str) -> bool {
-    matches!(hostname, "api.voidsfu.com" | "89.168.59.45")
+    matches!(hostname, "voidsfu.com" | "www.voidsfu.com" | "api.voidsfu.com" | "89.168.59.45")
 }
 
 fn pin_mismatch_error(hostname: &str, cert_hash: &str) -> Error {
