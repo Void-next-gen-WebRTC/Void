@@ -40,13 +40,6 @@ impl NonceStore {
             inner: Arc::new(DashMap::new()),
         }
     }
-}
-
-impl Default for NonceStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
     /// Generates a fresh nonce, stores it, and returns the string.
     pub fn generate(&self) -> Result<String, ApiError> {
@@ -84,6 +77,12 @@ impl Default for NonceStore {
         if removed > 0 {
             tracing::debug!("NonceStore: pruned {} expired nonce(s)", removed);
         }
+    }
+}
+
+impl Default for NonceStore {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
