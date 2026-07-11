@@ -33,7 +33,8 @@ jobs:
 
       - name: Skip CLA for bots
         if: steps.is-bot.outputs.is_bot == 'true'
-        run: echo "✅ Skipping CLA check for bot: ${{ steps.pr-author.outputs.author }}"
+        run: |
+          echo "✅ Skipping CLA check for bot: ${{ steps.pr-author.outputs.author }}"
 
       - name: CLA Assistant Check (if not bot)
         if: steps.is-bot.outputs.is_bot == 'false'
