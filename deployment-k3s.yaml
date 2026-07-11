@@ -64,9 +64,11 @@
 #    Then add the output as GitHub secret: KUBE_CONFIG
 #
 # 7. Apply:  CI runs envsubst < deployment-k3s.yaml | kubectl apply -f -
-#            Variables substituted: ${DOMAIN}, ${SIGNALING_IMAGE}
-#            ${DOMAIN}     → root domain served by Traefik (e.g. voidsfu.com)
-#            api.${DOMAIN} → API/WS subdomain for the signaling server (e.g. api.voidsfu.com)
+#            Variables substituted: ${DOMAIN}, ${SIGNALING_IMAGE}, ${LETSENCRYPT_EMAIL}
+#            ${DOMAIN}              → root domain served by Traefik (e.g. voidsfu.com)
+#            ${SIGNALING_IMAGE}     → GHCR image tag (e.g. ghcr.io/user/void:latest)
+#            ${LETSENCRYPT_EMAIL}   → admin email for Let's Encrypt cert renewal notices
+#            api.${DOMAIN}          → API/WS subdomain for the signaling server (e.g. api.voidsfu.com)
 #            Both must have A records pointing to the Oracle VM and must be
 #            covered by the void-tls Certificate (SAN list below).
 #
@@ -105,7 +107,7 @@ spec:
     # Let's Encrypt production ACME server
     server: https://acme-v02.api.letsencrypt.org/directory
     # Replace with your actual email address for expiry notifications
-    email: raphael.taibi@voidsfu.io
+    email: ${LETSENCRYPT_EMAIL}
     privateKeySecretRef:
       name: letsencrypt-prod-account-key
     solvers:
