@@ -8,7 +8,7 @@ const MARGIN = 8;
 const DEBOUNCE_MS = 350;
 const MIN_QUERY_LENGTH = 2;
 
-/** Matches a full tag `pseudo #XXXX` (suffix = 2-8 alphanumeric chars). */
+/** Matches a full tag `pseudo#XXXX` (suffix = 2-8 alphanumeric chars). */
 const TAG_REGEX = /^.+#[A-Za-z0-9]{2,8}$/;
 /** Matches a public-key prefix or full key (base64-ish, at least 8 chars). */
 const PUBKEY_REGEX = /^[A-Za-z0-9+/=_-]{8,}$/;
