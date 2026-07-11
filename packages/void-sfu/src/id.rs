@@ -36,7 +36,7 @@ impl PeerId {
 
 impl fmt::Debug for PeerId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "PeerId({})", &self.0)
+        write!(f, "PeerId({})", self.0)
     }
 }
 
@@ -99,7 +99,7 @@ impl RoomId {
 
 impl fmt::Debug for RoomId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RoomId({})", &self.0)
+        write!(f, "RoomId({})", self.0)
     }
 }
 
@@ -176,7 +176,7 @@ impl MediaSourceId {
 
 impl fmt::Debug for MediaSourceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MediaSourceId({})", &self.0)
+        write!(f, "MediaSourceId({})", self.0)
     }
 }
 
@@ -249,7 +249,7 @@ impl DataChannelSourceId {
 
 impl fmt::Debug for DataChannelSourceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "DataChannelSourceId({})", &self.0)
+        write!(f, "DataChannelSourceId({})", self.0)
     }
 }
 

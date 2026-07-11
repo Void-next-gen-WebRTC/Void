@@ -46,7 +46,10 @@ impl JitterBuffer {
         self.packets.retain(|p| {
             let diff = last_t.wrapping_sub(p.header.timestamp);
             // Saturate to avoid div-by-zero when configured with clock=0.
-            let age_ms = if clock == 0 { 0 } else { diff * 1000 / clock };
+            let age_ms = diff
+                .checked_mul(1000)
+                .and_then(|v| v.checked_div(clock))
+                .unwrap_or(0);
             age_ms <= playout
         });
     }
