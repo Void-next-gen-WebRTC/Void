@@ -1,6 +1,10 @@
 # Void
 
-A cross-platform, high-performance voice & video client built with **Rust**, **WebAssembly**, **Tauri v2** and **React 19**.
+A cross-platform, high-performance real-time communication system built with **Rust**, **WebAssembly**, **Tauri v2** and **React 19**. Void is a fully distributed, peer-to-peer infrastructure for voice, video, and messaging—designed to put you in complete control of your communications.
+
+> 🇫🇷 **Lisez en français ?** Consultez [README.fr.md](./README.fr.md) pour la documentation en français.
+
+---
 
 ## Architecture
 
@@ -158,172 +162,26 @@ docker compose up -d
 
 Starts Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`).
 
-## License
+## Observability & Deployment
 
-**Business Source License 1.1 (BSL-1.1)** — See [LICENSE](./LICENSE).
+Production runs on a **k3s cluster** (Oracle Ampere A1 / ARM64). Every push to `main` triggers a GitHub Actions pipeline that cross-compiles the signaling server, builds and pushes the container image to GHCR, then applies the Kubernetes manifests to the cluster automatically — no manual deployment step required.
 
----
+See [.github/workflows/deploy-signaling.yml](./.github/workflows/deploy-signaling.yml) and [deployment-k3s.yaml](./deployment-k3s.yaml) for the full pipeline. The stack includes Prometheus, Grafana, and Alertmanager alongside the signaling server, deployed in the `void` namespace, with TLS handled by Traefik + cert-manager.
 
-# Void (FR)
+## Contributing
 
-Client vocal et vidéo multiplateforme haute performance construit avec **Rust**, **WebAssembly**, **Tauri v2** et **React 19**.
+Void is open to contributions. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the workflow, code standards, and how to sign the CLA before opening a PR.
 
-## Architecture
+## ⚖️ License & Commercial Use
 
-```mermaid
-graph TB
-    subgraph "Application Desktop — Tauri v2"
-        direction TB
-        REACT["React 19 + Vite<br/>(Couche UI)"]
-        CTX["7 Contexts<br/>Auth · Voice · Stream<br/>Chat · Server · Toast · BentoLayout"]
-        HOOKS["8 Hooks<br/>BentoDrag · BentoResize · Dashboard<br/>NetworkStats · PTT · VAD · Profile"]
-        API["Couche API<br/>Négociation de contenu Protobuf"]
-        TAURI_CMD["Commandes Tauri<br/>Identité · Bento Layout · TLS Pinning"]
-    end
+**Void** is a production-grade project distributed under the **Business Source License 1.1 (BSL-1.1)**.
 
-    subgraph "core-wasm — Rust → WASM"
-        DSP["Audio DSP<br/>SmartGate · TransientSuppressor · RNNoise"]
-        CODEC["Codec Protobuf<br/>prost + serde-wasm-bindgen"]
-        VID["Analyse Vidéo<br/>Détection de frames · Histogramme"]
-        NET["Scoring Réseau<br/>Calculateur de qualité"]
-    end
+* **Personal & Non-Commercial Use:** You are fully allowed to clone the repository, read/modify the source code, and self-host your own Void infrastructure to communicate and collaborate with your team or friends for free. 🎮
+* **Contributions & Development:** Community engagement is welcome. You can open issues, explore the architecture, or submit Pull Requests (subject to our `CONTRIBUTING.md` terms).
+* **Commercial Purpose:** You may **not** use the Licensed Work for any use that is primarily intended for or directed toward commercial advantage or monetary compensation (e.g., selling hosting slots, building a commercial communication platform, or commercial embedding) without alternative licensing arrangements from the licensor.
 
-    subgraph "Serveur de Signalisation — Rust"
-        SFU["Moteur SFU<br/>webrtc-rs · JitterBuffer"]
-        AUTH["Module Auth<br/>JWT · Argon2id"]
-        FRIENDS["Module Amis<br/>CRUD + requêtes en attente"]
-        STORE["Store Protobuf<br/>DashMap → flush .bin"]
-        METRICS["Métriques Prometheus<br/>Pairs · Salons · Bande passante"]
-    end
+### The Open Source Transition (GPL)
+Per BSL terms, this commercial restriction has a strict expiration date. On **April 7, 2031**, this version of the software will automatically and permanently convert to the Open Source **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
 
-    REACT --> CTX --> HOOKS
-    HOOKS --> API
-    API -- "Protobuf / JSON" --> AUTH
-    API -- "Protobuf / JSON" --> FRIENDS
-    REACT -- "AudioWorklet" --> DSP
-    REACT -- "Worker" --> VID
-    HOOKS -- "WebSocket (TLS pinné)" --> SFU
-    HOOKS --> NET
-    API --> CODEC
-    TAURI_CMD -- "IPC" --> REACT
-    SFU --> STORE
-    AUTH --> STORE
-    FRIENDS --> STORE
-```
-
-## Stack Technique
-
-| Couche | Technologies |
-|---|---|
-| **Shell Desktop** | Tauri v2, Rust, Certificate Pinning TLS |
-| **Frontend** | React 19, TypeScript, TailwindCSS v4, Vite 7 |
-| **Audio Temps Réel** | WebRTC, AudioWorklet, RNNoise, DSP WASM |
-| **Noyau WASM** | Rust, wasm-bindgen, prost (protobuf) |
-| **Serveur de Signalisation** | Axum, Tokio, webrtc-rs, DashMap |
-| **Auth** | Ed25519 (keypair local), Argon2id, JWT HS256 |
-| **Observabilité** | Prometheus, Grafana, Alertmanager |
-| **Sérialisation** | Protobuf (prost) avec fallback JSON |
-
-## Structure du Monorepo
-
-```
-void/
-├── apps/desktop/              # App desktop Tauri + React + Vite
-│   ├── src/                   # Frontend React (contexts, hooks, composants)
-│   ├── src-tauri/             # Backend Rust (identité, Bento layout, TLS)
-│   └── public/worker/         # Worklets audio compilés
-├── packages/
-│   ├── core-wasm/             # Rust → WASM (DSP, codec, vidéo, réseau)
-│   └── signaling-server/      # Signalisation Rust + SFU + auth + amis
-├── docker/                    # Configs Prometheus, Grafana, Alertmanager
-├── Cargo.toml                 # Workspace Rust
-└── pnpm-workspace.yaml        # Workspace pnpm
-```
-
-## Flux Principaux
-
-### Authentification
-
-```mermaid
-sequenceDiagram
-    participant U as Utilisateur
-    participant T as Tauri (Rust)
-    participant R as React
-    participant W as core-wasm
-    participant S as Serveur de Signalisation
-
-    U->>R: Créer identité (pseudo + mot de passe)
-    R->>T: create_identity (IPC)
-    T->>T: Keypair Ed25519 + hash Argon2id
-    T-->>R: Identity { publicKey, pseudo }
-    R->>W: encodeRegisterBody(...)
-    W-->>R: Uint8Array (protobuf)
-    R->>S: POST /api/auth/register (protobuf)
-    S->>S: Vérification Argon2id + stockage + signature JWT
-    S-->>R: AuthResponse { token, user }
-    R->>W: decodeAuthResponse(bytes)
-    W-->>R: { token, user }
-```
-
-### Voix (SFU WebRTC)
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant WS as WebSocket (TLS)
-    participant SFU as Moteur SFU
-    participant PC as PeerConnection (webrtc-rs)
-
-    C->>WS: { type: "join", channelId, userId }
-    SFU-->>C: { type: "joined", peers, startedAt }
-    C->>C: getUserMedia() → AudioWorklet (DSP WASM)
-    C->>WS: { type: "offer", sdp }
-    SFU->>PC: Crée PeerConnection + set remote SDP
-    PC-->>SFU: SDP answer
-    SFU-->>C: { type: "answer", sdp }
-    C->>WS: { type: "ice", candidate }
-    SFU->>PC: Ajout candidat ICE
-
-    Note over SFU,PC: Tracks relayés via ForwarderState + JitterBuffer (30ms)
-    SFU-->>C: { type: "trackMap", userId, trackId, kind }
-```
-
-## Démarrage Rapide
-
-```sh
-pnpm install
-cd apps/desktop
-pnpm dev
-```
-
-### Compiler le Noyau WASM
-
-```sh
-cd packages/core-wasm
-wasm-pack build --target web --out-dir ../../apps/desktop/src/pkg
-```
-
-### Compiler le Worklet Audio
-
-```sh
-cd apps/desktop
-pnpm build:worklet
-```
-
-### Build Desktop Natif
-
-```sh
-pnpm tauri build
-```
-
-## Observabilité (Docker)
-
-```sh
-docker compose up -d
-```
-
-Lance Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`).
-
-## Licence
-
-**Business Source License 1.1 (BSL-1.1)** — Voir [LICENSE](./LICENSE).
+*For the full legally binding terms (English text and official French translation), please refer to the [LICENSE](./LICENSE) file.*
+
