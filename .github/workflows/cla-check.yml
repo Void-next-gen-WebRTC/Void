@@ -1,51 +1,31 @@
 name: CLA Verification
 
 on:
+  issue_comment:
+    types: [created]
   pull_request_target:
-    types: [opened, synchronize]
+    types: [opened, closed, synchronize]
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
 
 jobs:
   cla-check:
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
-      contents: write
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Get PR author
-        id: pr-author
-        run: |
-          AUTHOR=$(jq -r '.pull_request.user.login' < "$GITHUB_EVENT_PATH")
-          echo "author=$AUTHOR" >> $GITHUB_OUTPUT
-
-      - name: Check if PR author is bot
-        id: is-bot
-        run: |
-          AUTHOR=${{ steps.pr-author.outputs.author }}
-          if [[ "$AUTHOR" == "dependabot"* ]] || [[ "$AUTHOR" == "renovate" ]]; then
-            echo "is_bot=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_bot=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Skip CLA for bots
-        if: steps.is-bot.outputs.is_bot == 'true'
-        run: |
-          echo "✅ Skipping CLA check for bot: ${{ steps.pr-author.outputs.author }}"
-
-      - name: CLA Assistant Check (if not bot)
-        if: steps.is-bot.outputs.is_bot == 'false'
-        uses: contributor-assistant/github-action@v2.4.0
+      - name: "CLA Assistant"
+        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA and agree to its terms') || github.event_name == 'pull_request_target'
+        uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           path-to-signatures: 'signatures/cla.json'
-          path-to-document: 'CLA.md'
+          path-to-document: 'https://github.com/Void-next-gen-WebRTC/Void/blob/main/CLA.md'
           branch: 'main'
-          allowlist: dependabot,renovate,bot
+          allowlist: dependabot*,renovate*,bot*
           create-file-commit-message: 'docs: CLA signed'
           signed-commit-message: 'CLA has been signed'
           custom-notsigned-prcomment: |
@@ -55,9 +35,9 @@ jobs:
 
             ✅ **How to sign:**
             1. Review the CLA at [CLA.md](https://github.com/Void-next-gen-WebRTC/Void/blob/main/CLA.md)
-            2. Reply to this comment with: **I have read the CLA and agree to its terms**
-            3. CLA Assistant will verify and update this status
+            2. Reply to this comment with exactly: **I have read the CLA and agree to its terms**
+            3. CLA Assistant will verify and update this status automatically
 
             This is a one-time requirement. Thank you!
-          custom-pr-sign-comment: '✅ CLA signed! Thank you for your contribution to Void! 💜'
+          custom-pr-sign-comment: 'I have read the CLA and agree to its terms'
           custom-allsigned-prcomment: '✅ All contributors have signed the CLA. This PR is ready for review.'
