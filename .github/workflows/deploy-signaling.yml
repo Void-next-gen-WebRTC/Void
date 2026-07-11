@@ -176,7 +176,7 @@ jobs:
         env:
           DOMAIN: ${{ secrets.DOMAIN }}
           SIGNALING_IMAGE: ${{ env.IMAGE }}:${{ github.sha }}
-          PUBLIC_IP: ${{ secrets.ORACLE_HOST }}
+          PUBLIC_IP: ${{ secrets.PUBLIC_IP }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
           envsubst '$DOMAIN,$SIGNALING_IMAGE,$PUBLIC_IP,$JWT_SECRET' < deployment-k3s.yaml > deployment-k3s-rendered.yaml
@@ -197,7 +197,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GF_ADMIN_USER: ${{ secrets.GF_ADMIN_USER }}
           GF_ADMIN_PASSWORD: ${{ secrets.GF_ADMIN_PASSWORD }}
-          PUBLIC_IP: ${{ secrets.ORACLE_HOST }}
+          PUBLIC_IP: ${{ secrets.PUBLIC_IP }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         with:
           host: ${{ secrets.ORACLE_HOST }}
