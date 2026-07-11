@@ -168,7 +168,7 @@ pub async fn list_recent_dm_partners(state: &Arc<AppState>, user_id: &str) -> Ve
             }
         }
     }
-    partners.sort_by(|a, b| b.1.cmp(&a.1));
+    partners.sort_by_key(|a| std::cmp::Reverse(a.1));
     partners
         .into_iter()
         .filter_map(|(uid, _)| {
