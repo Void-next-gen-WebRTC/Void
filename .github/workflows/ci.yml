@@ -37,10 +37,7 @@ jobs:
       - name: cargo fmt --all -- --check
         run: cargo fmt --all -- --check
       - name: cargo clippy (workspace, all targets)
-        # Non-fatal for now: clippy already runs locally and we surface its
-        # output without blocking the pipeline. Promote to `-D warnings`
-        # after the existing stylistic warnings are cleaned up.
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings
       - name: cargo test (whole workspace)
         run: cargo test --workspace --verbose
   # ─────────────────────────────────────────────────────────────────────────
