@@ -61,16 +61,3 @@ jobs:
             This is a one-time requirement. Thank you!
           custom-pr-sign-comment: '✅ CLA signed! Thank you for your contribution to Void! 💜'
           custom-allsigned-prcomment: '✅ All contributors have signed the CLA. This PR is ready for review.'
-
-  verify-status:
-    runs-on: ubuntu-latest
-    needs: cla-check
-    if: always()
-    steps:
-      - name: Report status
-        run: |
-          if [[ "${{ needs.cla-check.result }}" == "success" ]]; then
-            echo "✅ CLA verification passed"
-          else
-            echo "⚠️ CLA verification check status: ${{ needs.cla-check.result }}"
-          fi
