@@ -1,0 +1,13 @@
+{
+  "signatureVersion": "1.0",
+  "CLAVersion": "1.0",
+  "individualSignatures": [
+    {
+      "name": "Raphael Taibi",
+      "email": "raphael.taibi@voidsfu.io",
+      "date": "2026-07-11",
+      "githubUsername": "raphael-taibi"
+    }
+  ],
+  "corporateSignatures": []
+}
