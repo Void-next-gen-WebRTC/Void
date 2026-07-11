@@ -80,6 +80,12 @@ impl NonceStore {
     }
 }
 
+impl Default for NonceStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Spawns a periodic background task that prunes expired nonces.
 pub fn spawn_cleanup(store: NonceStore) {
     tokio::spawn(async move {

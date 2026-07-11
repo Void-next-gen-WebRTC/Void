@@ -1,6 +1,6 @@
 # Void (FR)
 
-Client vocal et vidéo multiplateforme haute performance : un système de communication en temps réel entièrement distribué construit avec **Rust**, **WebAssembly**, **Tauri v2** et **React 19**. Void est une infrastructure pair-à-pair complète pour la voix, la vidéo et la messagerie — conçue pour vous donner le contrôle total de vos communications.
+Client vocal et vidéo multiplateforme haute performance : un système de communication en temps réel entièrement distribué construit avec **Rust**, **WebAssembly**, **Tauri v2** et **React 19**. Void est une plateforme de communication complète pour la voix, la vidéo et la messagerie — conçue pour vous donner le contrôle total de vos données et de votre infrastructure.
 
 ## Architecture
 

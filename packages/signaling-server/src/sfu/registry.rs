@@ -163,10 +163,7 @@ impl ServerRegistry {
 
     /// Adds a member to the secondary index for a given server.
     pub fn index_member(&self, member_pk: &str, server_id: &str) {
-        let mut entry = self
-            .member_index
-            .entry(member_pk.to_string())
-            .or_insert_with(Vec::new);
+        let mut entry = self.member_index.entry(member_pk.to_string()).or_default();
         if !entry.contains(&server_id.to_string()) {
             entry.push(server_id.to_string());
         }

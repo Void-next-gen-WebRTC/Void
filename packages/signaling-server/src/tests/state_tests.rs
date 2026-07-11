@@ -9,6 +9,8 @@
 #[test]
 fn channel_capacity_constants_are_positive() {
     use crate::sfu::state::{CHAT_HISTORY_CAP, WS_CHANNEL_CAPACITY};
-    assert!(WS_CHANNEL_CAPACITY > 0);
-    assert!(CHAT_HISTORY_CAP > 0);
+    const {
+        assert!(WS_CHANNEL_CAPACITY > 0);
+        assert!(CHAT_HISTORY_CAP > 0);
+    }
 }

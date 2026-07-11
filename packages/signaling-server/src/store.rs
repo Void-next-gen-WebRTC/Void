@@ -113,6 +113,7 @@ impl Store {
         Ok(())
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn read_snapshot(
         path: &str,
     ) -> (
