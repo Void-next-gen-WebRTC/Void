@@ -176,8 +176,10 @@ jobs:
         env:
           DOMAIN: ${{ secrets.DOMAIN }}
           SIGNALING_IMAGE: ${{ env.IMAGE }}:${{ github.sha }}
+          PUBLIC_IP: ${{ secrets.ORACLE_HOST }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          envsubst '$DOMAIN,$SIGNALING_IMAGE' < deployment-k3s.yaml > deployment-k3s-rendered.yaml
+          envsubst '$DOMAIN,$SIGNALING_IMAGE,$PUBLIC_IP,$JWT_SECRET' < deployment-k3s.yaml > deployment-k3s-rendered.yaml
 
       - name: Copy rendered manifest to Oracle VM
         uses: appleboy/scp-action@v0.1.7
@@ -195,11 +197,13 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
           GF_ADMIN_USER: ${{ secrets.GF_ADMIN_USER }}
           GF_ADMIN_PASSWORD: ${{ secrets.GF_ADMIN_PASSWORD }}
+          PUBLIC_IP: ${{ secrets.ORACLE_HOST }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD
+          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD,PUBLIC_IP,JWT_SECRET
           script: |
             # SSH sessions do not source .bashrc — set KUBECONFIG explicitly
             # so kubectl finds ~/.kube/config instead of the root-only /etc/rancher/k3s/k3s.yaml
@@ -207,6 +211,18 @@ jobs:
 
             echo "=== Applying k3s manifest ==="
             cd ~/void
+
+            # Upsert void-signaling-secrets with PUBLIC_IP and JWT_SECRET from GitHub Actions
+            if [ -n "${PUBLIC_IP}" ] && [ -n "${JWT_SECRET}" ]; then
+              kubectl create secret generic void-signaling-secrets \
+                --from-literal=PUBLIC_IP="${PUBLIC_IP}" \
+                --from-literal=JWT_SECRET="${JWT_SECRET}" \
+                -n void \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "✅ void-signaling-secrets upserted with PUBLIC_IP=${PUBLIC_IP}"
+            else
+              echo "⚠️  PUBLIC_IP or JWT_SECRET not set — skipping void-signaling-secrets upsert."
+            fi
 
             # Refresh GHCR pull secret so k3s can pull the private image.
             # Uses a long-lived PAT (GHCR_TOKEN) instead of the ephemeral GITHUB_TOKEN.
