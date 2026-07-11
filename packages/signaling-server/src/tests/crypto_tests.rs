@@ -71,8 +71,8 @@ fn invalid_b64_pubkey_returns_err() {
 
 #[test]
 fn wrong_length_pubkey_returns_err() {
-    let short = general_purpose::STANDARD.encode(&[0u8; 16]);
-    let sig = general_purpose::STANDARD.encode(&[0u8; 64]);
+    let short = general_purpose::STANDARD.encode([0u8; 16]);
+    let sig = general_purpose::STANDARD.encode([0u8; 64]);
     let result = verify_signature(&short, b"msg", &sig);
     assert!(result.is_err());
 }
@@ -84,7 +84,7 @@ fn wrong_length_pubkey_returns_err() {
 #[test]
 fn wrong_length_signature_returns_err() {
     let (pk_b64, _) = gen_keypair();
-    let short_sig = general_purpose::STANDARD.encode(&[0u8; 32]);
+    let short_sig = general_purpose::STANDARD.encode([0u8; 32]);
     let result = verify_signature(&pk_b64, b"msg", &short_sig);
     assert!(result.is_err());
 }

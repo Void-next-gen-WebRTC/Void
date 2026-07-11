@@ -161,7 +161,7 @@ async fn create_server(
     let message = format!("create:{}:{}", name, body.nonce);
     let valid =
         crypto::verify_signature(&body.owner_public_key, message.as_bytes(), &body.signature)
-            .map_err(|e| ApiError::BadRequest(e))?;
+            .map_err(ApiError::BadRequest)?;
 
     if !valid {
         return Err(ApiError::Forbidden("Invalid ownership signature".into()));
@@ -237,7 +237,7 @@ async fn list_servers(
                     let s = kv.value();
                     let is_owner = caller_pk
                         .as_ref()
-                        .map_or(false, |cpk| *cpk == s.owner_public_key);
+                        .is_some_and(|cpk| *cpk == s.owner_public_key);
                     ServerResponse::from_server(s, is_owner)
                 })
                 .collect();
@@ -286,7 +286,7 @@ async fn list_servers(
 /// Detects servers whose `owner_public_key` is absent from the auth store
 /// (orphaned after identity or auth-store data loss) and transfers ownership
 /// to the authenticated caller, who must already be a member.
-fn heal_orphaned_ownership(state: &AppState, caller_pk: &str, results: &mut Vec<ServerResponse>) {
+fn heal_orphaned_ownership(state: &AppState, caller_pk: &str, results: &mut [ServerResponse]) {
     let mut healed = false;
 
     for resp in results.iter_mut() {
@@ -356,7 +356,7 @@ async fn get_server(
 
     let is_owner = caller_pk
         .as_ref()
-        .map_or(false, |pk| *pk == server.owner_public_key);
+        .is_some_and(|pk| *pk == server.owner_public_key);
 
     Ok(Json(ServerResponse::from_server(server.value(), is_owner)))
 }
@@ -408,7 +408,7 @@ async fn delete_server(
     let message = format!("delete:{}:{}", id, body.nonce);
     let valid =
         crypto::verify_signature(&body.owner_public_key, message.as_bytes(), &body.signature)
-            .map_err(|e| ApiError::BadRequest(e))?;
+            .map_err(ApiError::BadRequest)?;
 
     if !valid {
         return Err(ApiError::Forbidden("Invalid ownership signature".into()));
@@ -505,7 +505,7 @@ async fn create_channel(
     let message = format!("create_channel:{}:{}:{}", id, body.name, body.nonce);
     let valid =
         crypto::verify_signature(&body.owner_public_key, message.as_bytes(), &body.signature)
-            .map_err(|e| ApiError::BadRequest(e))?;
+            .map_err(ApiError::BadRequest)?;
 
     if !valid {
         return Err(ApiError::Forbidden("Invalid ownership signature".into()));
@@ -518,7 +518,7 @@ async fn create_channel(
     });
 
     // Owner action — reveal invite key
-    let response = ServerResponse::from_server(&*server, true);
+    let response = ServerResponse::from_server(&server, true);
     drop(server);
     state.server_registry.save();
 
@@ -547,7 +547,7 @@ async fn delete_channel(
     let message = format!("delete_channel:{}:{}:{}", id, channel_id, body.nonce);
     let valid =
         crypto::verify_signature(&body.owner_public_key, message.as_bytes(), &body.signature)
-            .map_err(|e| ApiError::BadRequest(e))?;
+            .map_err(ApiError::BadRequest)?;
 
     if !valid {
         return Err(ApiError::Forbidden("Invalid ownership signature".into()));
@@ -556,7 +556,7 @@ async fn delete_channel(
     server.channels.retain(|c| c.id != channel_id);
 
     // Owner action — reveal invite key
-    let response = ServerResponse::from_server(&*server, true);
+    let response = ServerResponse::from_server(&server, true);
     drop(server);
     state.server_registry.save();
 

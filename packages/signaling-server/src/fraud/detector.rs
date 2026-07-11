@@ -34,6 +34,13 @@ impl FraudDetector {
             ws_connects: DashMap::new(),
         }
     }
+}
+
+impl Default for FraudDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
     /// Records a failed login attempt. Returns `true` if the IP should be banned.
     pub fn record_login_fail(&self, ip: &str, bans: &BanStore) -> bool {
@@ -87,7 +94,7 @@ impl FraudDetector {
         bans: &BanStore,
     ) -> bool {
         let now = Instant::now();
-        let mut entry = map.entry(ip.to_string()).or_insert_with(VecDeque::new);
+        let mut entry = map.entry(ip.to_string()).or_default();
         let deque = entry.value_mut();
 
         // Purge events outside the window

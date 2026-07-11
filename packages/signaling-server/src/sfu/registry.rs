@@ -166,7 +166,7 @@ impl ServerRegistry {
         let mut entry = self
             .member_index
             .entry(member_pk.to_string())
-            .or_insert_with(Vec::new);
+            .or_default();
         if !entry.contains(&server_id.to_string()) {
             entry.push(server_id.to_string());
         }

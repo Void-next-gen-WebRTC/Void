@@ -57,7 +57,7 @@ async fn register(
     nonces.consume(&body.nonce)?;
     let challenge = format!("register:{}:{}", username, body.nonce);
     let valid = crypto::verify_signature(pk, challenge.as_bytes(), &body.signature)
-        .map_err(|e| ApiError::BadRequest(e))?;
+        .map_err(ApiError::BadRequest)?;
     if !valid {
         return Err(ApiError::Forbidden("Invalid identity signature".into()));
     }
@@ -124,7 +124,7 @@ async fn login(
     nonces.consume(&body.nonce)?;
     let challenge = format!("login:{}:{}", pk, body.nonce);
     let valid = crypto::verify_signature(pk, challenge.as_bytes(), &body.signature)
-        .map_err(|e| ApiError::BadRequest(e))?;
+        .map_err(ApiError::BadRequest)?;
     if !valid {
         return Err(ApiError::Forbidden("Invalid identity signature".into()));
     }

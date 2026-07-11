@@ -14,7 +14,6 @@ use signaling_server::{auth, fraud, friends, metrics, nonce, sfu, store};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{routing::get, Extension, Router};
