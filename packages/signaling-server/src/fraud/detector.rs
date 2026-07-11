@@ -34,13 +34,6 @@ impl FraudDetector {
             ws_connects: DashMap::new(),
         }
     }
-}
-
-impl Default for FraudDetector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
     /// Records a failed login attempt. Returns `true` if the IP should be banned.
     pub fn record_login_fail(&self, ip: &str, bans: &BanStore) -> bool {
@@ -125,6 +118,12 @@ impl Default for FraudDetector {
                 !deque.is_empty()
             });
         }
+    }
+}
+
+impl Default for FraudDetector {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
