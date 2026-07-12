@@ -1,0 +1,108 @@
+name: Staging Test Build
+
+# Manual, on-demand multi-platform build for testing a fix on a second
+# device before opening/finishing a PR. Does NOT publish a GitHub Release —
+# it only uploads build artifacts, downloadable from the run's summary page.
+#
+# Works both on this repo (for maintainers/trusted collaborators) and on a
+# contributor's own fork (Actions must be enabled once on the fork first:
+# the "Actions" tab shows a one-click "I understand my workflows, go ahead
+# and enable them" banner on freshly forked repos).
+#
+# Point signaling_url / api_url at whatever you want to test against:
+# your own local tunnel, a self-hosted signaling-server instance, or the
+# project's staging environment if the maintainer has shared its URL.
+
+on:
+  workflow_dispatch:
+    inputs:
+      signaling_url:
+        description: "Signaling server URL to point this build at"
+        required: false
+        default: "https://staging-api.voidsfu.com"
+      api_url:
+        description: "API URL to point this build at"
+        required: false
+        default: "https://staging-api.voidsfu.com"
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: ubuntu-22.04
+            args: ""
+            rust-targets: ""
+          - platform: windows-latest
+            args: ""
+            rust-targets: ""
+          - platform: macos-latest
+            args: "--target universal-apple-darwin"
+            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.platform }}-cargo-test-build-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.platform }}-cargo-test-build-
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
+      - name: Build WASM package
+        run: |
+          cd packages/core-wasm
+          wasm-pack build --target web --out-dir ../../apps/desktop/src/pkg
+
+      - name: Install dependencies
+        env:
+          VITE_SIGNALING_URL: ${{ inputs.signaling_url }}
+          VITE_API_URL: ${{ inputs.api_url }}
+        run: pnpm install
+
+      - name: Build Tauri app (debug, unsigned, not published)
+        working-directory: apps/desktop
+        env:
+          VITE_SIGNALING_URL: ${{ inputs.signaling_url }}
+          VITE_API_URL: ${{ inputs.api_url }}
+        run: pnpm tauri build --debug ${{ matrix.args }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-test-build-${{ matrix.platform }}
+          path: |
+            apps/desktop/src-tauri/target/**/bundle/**
+          retention-days: 7
+          if-no-files-found: error

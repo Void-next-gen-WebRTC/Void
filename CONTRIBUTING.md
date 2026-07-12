@@ -45,7 +45,8 @@ Before contributing, please familiarize yourself with our monorepo architecture 
 
 * **apps/desktop** — Tauri v2 + React 19 + Vite 7 desktop application
 * **packages/core-wasm** — Rust → WASM DSP (SmartGate, RNNoise), codec, video, and network scoring
-* **packages/signaling-server** — Rust SFU (webrtc-rs) + WebRTC signaling, auth, and friends modules
+* **packages/void-sfu** — Domain-agnostic SFU engine (webrtc-rs): RTCPeerConnections, ICE/SDP negotiation, RTP/SCTP forwarding
+* **packages/signaling-server** — Rust REST surface (auth, friends, presence) + WebSocket signaling; embeds `void-sfu` as its media plane
 
 ---
 
@@ -144,6 +145,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 2. Run all tests locally.
 3. **Sign the CLA:** Open your PR, and our automated CLA Verification workflow will evaluate your signature. Follow the instructions posted by the bot directly inside your PR discussion.
 
+### Testing Real-Time Features on a Second Device
+
+Some fixes (audio/voice, WebRTC/SFU, network transport) can't be fully verified on a single machine or via automated tests alone — you need two real clients actually talking to each other.
+
+* **Same OS on both devices:** run `pnpm tauri build --debug` once on your main machine with `VITE_SIGNALING_URL`/`VITE_API_URL` pointed at whatever server you're testing against (your own local `signaling-server`, a self-hosted instance, etc.), then copy the resulting bundle to your second device and install it there — no toolchain needed on the second machine.
+* **Different OS on your second device (Windows/macOS/Linux):** use the [`Staging Test Build`](./.github/workflows/staging-test-build.yml) workflow. It's a `workflow_dispatch` job that cross-builds all three platforms on GitHub's runners and uploads them as downloadable artifacts (no GitHub Release is created). Since it lives in this repo, **it's already in your fork** — go to your fork's **Actions** tab and run it manually, no write access to the upstream repo required.
+    * First time using Actions on a fresh fork, GitHub shows a banner "I understand my workflows, go ahead and enable them" — click it once.
+    * You can point the build at your own local/self-hosted signaling-server, or ask a maintainer for a staging URL if you'd rather test against shared infrastructure.
+* Describe how you tested (which method, how many clients, what network setup) in the PR's Testing section — this matters even more than usual for UDP/NAT-sensitive fixes, since `localhost`-only testing can miss real network path issues.
+
 ### Opening the PR
 
 1. Use the provided Pull Request template (automatically loaded).
@@ -175,7 +186,7 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ### Reporting Security Issues
 
-⚠️ **CRITICAL:** Do NOT open a public GitHub issue for security vulnerabilities, memory exploits, or protocol leaks. Please report them confidentially using **[GitHub Private Vulnerability Reporting](../../security/advisories/new)** (repository's **Security** tab → **Report a vulnerability**). This keeps the report private between you and the maintainers until a fix is released.
+⚠️ **CRITICAL:** Do NOT open a public GitHub issue for security vulnerabilities, memory exploits, or protocol leaks. Please report them confidentially using **[GitHub Private Vulnerability Reporting](https://github.com/Void-next-gen-WebRTC/Void/security/advisories/new)** (repository's **Security** tab → **Report a vulnerability**). This keeps the report private between you and the maintainers until a fix is released.
 
 ### Creating a Standard Issue
 
