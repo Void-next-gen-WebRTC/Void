@@ -1,26 +1,18 @@
-# Copyright (c) 2024 Void — Business Source License 1.1
+# Copyright (c) 2025 Void - Business Source License 1.1
 # See LICENSE file for full terms. Production use requires a commercial license.
 #
-# Deploy pipeline: cross-compile ARM64 binary on GitHub runner → build Docker image
-#                  → push to GHCR → SSH to Oracle VM → kubectl apply deployment-k3s.yaml
+# Same binary/image for both environments - only target manifest/namespace/port differ:
+#   push to main -> staging (void-staging, deployment-k3s-staging.yaml)
+#   tag push v*  -> prod    (void, deployment-k3s.yaml)
 #
-# The image is built on the GitHub runner (x86) using QEMU for ARM64 emulation,
-# then pushed to GitHub Container Registry (GHCR). k3s pulls the image via the
-# ghcr-secret imagePullSecret defined in deployment-k3s.yaml.
+# Required secrets: PRIMARY_PIN_HASH, BACKUP_PIN_HASH, ORACLE_HOST, ORACLE_SSH_KEY,
+# DOMAIN, PUBLIC_IP, JWT_SECRET, STAGING_JWT_SECRET, GHCR_TOKEN, GF_ADMIN_USER,
+# GF_ADMIN_PASSWORD, SLACK_WEBHOOK_URL.
 #
-# Required GitHub secrets:
-#   PRIMARY_PIN_HASH     — build-time Rust env var (baked into binary)
-#   BACKUP_PIN_HASH      — build-time Rust env var (baked into binary)
-#   ORACLE_HOST          — Oracle VM public IP
-#   ORACLE_SSH_KEY       — SSH private key for ubuntu@ORACLE_HOST
-#   DOMAIN               — public domain for envsubst
-#   GHCR_TOKEN           — long-lived PAT with read:packages scope (for k3s pull secret)
-#   GF_ADMIN_USER        — Grafana admin username (maps to GF_SECURITY_ADMIN_USER)
-#   GF_ADMIN_PASSWORD    — Grafana admin password (maps to GF_SECURITY_ADMIN_PASSWORD)
-#   SLACK_WEBHOOK_URL    — Slack notifications
-#
-# One-time cluster bootstrap (run manually once on the VM):
-#   See deployment-k3s.yaml pre-flight checklist for kubectl create secret commands.
+# ghcr-secret must exist in both void and void-staging namespaces (secrets don't
+# cross namespaces). No `paths:` filter on tag pushes - GitHub's paths diff is
+# unreliable for a lightweight tag on a commit already on main, so a tag always
+# redeploys prod regardless of which files changed.
 
 name: Deploy Signaling Server + Monitoring
 
@@ -28,6 +20,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*'
     paths:
       - 'packages/signaling-server/**'
       - 'packages/void-sfu/**'
@@ -36,9 +30,9 @@ on:
       - '.github/workflows/deploy-signaling.yml'
       - 'Dockerfile'
       - 'deployment-k3s.yaml'
+      - 'deployment-k3s-staging.yaml'
       - 'docker/**'
   workflow_dispatch:
-
 
 env:
   RUST_TOOLCHAIN: stable
@@ -48,9 +42,9 @@ env:
   # would make docker/build-push-action fail with "repository name must be lowercase".
 
 jobs:
-  # ─────────────────────────────────────────────────────────────────────────
+  # -----------------------------------------------------------------------
   # Run the test suite before any build or deploy step.
-  # ─────────────────────────────────────────────────────────────────────────
+  # -----------------------------------------------------------------------
   test:
     runs-on: ubuntu-latest
     env:
@@ -82,10 +76,10 @@ jobs:
       - name: Run signaling-server tests
         run: cargo test -p signaling-server --verbose
 
-  # ─────────────────────────────────────────────────────────────────────────
-  # Cross-compile ARM64 binary on GitHub runner → build Docker image → push
-  # to GHCR → SSH to Oracle VM → kubectl apply (same flow as old docker-compose)
-  # ─────────────────────────────────────────────────────────────────────────
+  # -----------------------------------------------------------------------
+  # Cross-compile ARM64 binary on GitHub runner -> build Docker image -> push
+  # to GHCR -> SSH to Oracle VM -> kubectl apply (staging on push, prod on tag)
+  # -----------------------------------------------------------------------
   build-and-deploy:
     needs: test
     runs-on: ubuntu-latest
@@ -104,6 +98,25 @@ jobs:
         run: |
           OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE=ghcr.io/${OWNER}/void-signaling-server" >> $GITHUB_ENV
+
+      # Decides staging vs prod for every step below: namespace, which manifest
+      # to render, the rendered file name, and which localhost port to health-check.
+      - name: Determine deploy target
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
+            echo "K8S_NAMESPACE=void" >> $GITHUB_ENV
+            echo "MANIFEST_FILE=deployment-k3s.yaml" >> $GITHUB_ENV
+            echo "RENDERED_FILE=deployment-k3s-rendered.yaml" >> $GITHUB_ENV
+            echo "HEALTH_PORT=3001" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+            echo "K8S_NAMESPACE=void-staging" >> $GITHUB_ENV
+            echo "MANIFEST_FILE=deployment-k3s-staging.yaml" >> $GITHUB_ENV
+            echo "RENDERED_FILE=deployment-k3s-staging-rendered.yaml" >> $GITHUB_ENV
+            echo "HEALTH_PORT=3002" >> $GITHUB_ENV
+          fi
+          echo "Deploying to: $([[ "${{ github.ref }}" == refs/tags/v* ]] && echo prod || echo staging)"
 
       - name: Install Rust toolchain (ARM64 cross-compilation)
         uses: dtolnay/rust-toolchain@stable
@@ -170,16 +183,23 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      # Render the manifest locally (safe: restricted to DOMAIN + SIGNALING_IMAGE only)
-      # then push it to the VM and apply via kubectl — same SSH pattern as old docker-compose deploy.
+      # Render whichever manifest matches DEPLOY_ENV. Prod substitutes DOMAIN/
+      # SIGNALING_IMAGE/PUBLIC_IP/JWT_SECRET; staging only needs the image ref
+      # (its host is hardcoded to staging-api.voidsfu.com, and PUBLIC_IP/JWT_SECRET
+      # are injected via a k8s Secret, not envsubst).
       - name: Render k3s manifest with envsubst
         env:
           DOMAIN: ${{ secrets.DOMAIN }}
           SIGNALING_IMAGE: ${{ env.IMAGE }}:${{ github.sha }}
+          STAGING_SIGNALING_IMAGE: ${{ env.IMAGE }}:${{ github.sha }}
           PUBLIC_IP: ${{ secrets.PUBLIC_IP }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
         run: |
-          envsubst '$DOMAIN,$SIGNALING_IMAGE,$PUBLIC_IP,$JWT_SECRET' < deployment-k3s.yaml > deployment-k3s-rendered.yaml
+          if [ "$DEPLOY_ENV" = "prod" ]; then
+            envsubst '$DOMAIN,$SIGNALING_IMAGE,$PUBLIC_IP,$JWT_SECRET' < "$MANIFEST_FILE" > "$RENDERED_FILE"
+          else
+            envsubst '$STAGING_SIGNALING_IMAGE' < "$MANIFEST_FILE" > "$RENDERED_FILE"
+          fi
 
       - name: Copy rendered manifest to Oracle VM
         uses: appleboy/scp-action@v0.1.7
@@ -187,7 +207,7 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          source: "deployment-k3s-rendered.yaml,docker/"
+          source: "${{ env.RENDERED_FILE }},docker/"
           target: "/home/ubuntu/void"
 
       - name: Deploy on Oracle VM via kubectl
@@ -199,106 +219,123 @@ jobs:
           GF_ADMIN_PASSWORD: ${{ secrets.GF_ADMIN_PASSWORD }}
           PUBLIC_IP: ${{ secrets.PUBLIC_IP }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+          DEPLOY_ENV: ${{ env.DEPLOY_ENV }}
+          K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
+          RENDERED_FILE: ${{ env.RENDERED_FILE }}
+          HEALTH_PORT: ${{ env.HEALTH_PORT }}
         with:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD,PUBLIC_IP,JWT_SECRET
+          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD,PUBLIC_IP,JWT_SECRET,STAGING_JWT_SECRET,DEPLOY_ENV,K8S_NAMESPACE,RENDERED_FILE,HEALTH_PORT
           script: |
-            # SSH sessions do not source .bashrc — set KUBECONFIG explicitly
+            # SSH sessions do not source .bashrc - set KUBECONFIG explicitly
             # so kubectl finds ~/.kube/config instead of the root-only /etc/rancher/k3s/k3s.yaml
             export KUBECONFIG=/home/ubuntu/.kube/config
 
-            echo "=== Applying k3s manifest ==="
+            echo "=== Deploying to ${DEPLOY_ENV} (namespace: ${K8S_NAMESPACE}) ==="
             cd ~/void
 
-            # Upsert void-signaling-secrets with PUBLIC_IP and JWT_SECRET from GitHub Actions
-            if [ -n "${PUBLIC_IP}" ] && [ -n "${JWT_SECRET}" ]; then
-              kubectl create secret generic void-signaling-secrets \
-                --from-literal=PUBLIC_IP="${PUBLIC_IP}" \
-                --from-literal=JWT_SECRET="${JWT_SECRET}" \
-                -n void \
-                --dry-run=client -o yaml | kubectl apply -f -
-              echo "✅ void-signaling-secrets upserted with PUBLIC_IP=${PUBLIC_IP}"
+            # Upsert the signaling secrets in the target namespace only.
+            # JWT_SECRET differs per environment on purpose (prod vs staging tokens
+            # are never interchangeable); PUBLIC_IP is the same Oracle VM for both.
+            if [ "${DEPLOY_ENV}" = "prod" ]; then
+              SIGNALING_SECRET_NAME="void-signaling-secrets"
+              EFFECTIVE_JWT_SECRET="${JWT_SECRET}"
             else
-              echo "⚠️  PUBLIC_IP or JWT_SECRET not set — skipping void-signaling-secrets upsert."
+              SIGNALING_SECRET_NAME="void-staging-signaling-secrets"
+              EFFECTIVE_JWT_SECRET="${STAGING_JWT_SECRET}"
             fi
 
-            # Refresh GHCR pull secret so k3s can pull the private image.
-            # Uses a long-lived PAT (GHCR_TOKEN) instead of the ephemeral GITHUB_TOKEN.
-            # Skip if GHCR_TOKEN secret is not yet configured (first bootstrap).
+            if [ -n "${PUBLIC_IP}" ] && [ -n "${EFFECTIVE_JWT_SECRET}" ]; then
+              kubectl create secret generic "${SIGNALING_SECRET_NAME}" \
+                --from-literal=PUBLIC_IP="${PUBLIC_IP}" \
+                --from-literal=JWT_SECRET="${EFFECTIVE_JWT_SECRET}" \
+                -n "${K8S_NAMESPACE}" \
+                --dry-run=client -o yaml | kubectl apply -f -
+              echo "✅ ${SIGNALING_SECRET_NAME} upserted in ${K8S_NAMESPACE}"
+            else
+              echo "⚠️  PUBLIC_IP or JWT secret not set - skipping ${SIGNALING_SECRET_NAME} upsert."
+            fi
+
+            # Refresh GHCR pull secret in the target namespace. Secrets don't cross
+            # namespaces, so this must be upserted separately for void and void-staging.
             if [ -n "${GHCR_TOKEN}" ]; then
               kubectl create secret docker-registry ghcr-secret \
                 --docker-server=ghcr.io \
                 --docker-username="${GHCR_ACTOR}" \
                 --docker-password="${GHCR_TOKEN}" \
-                -n void \
+                -n "${K8S_NAMESPACE}" \
                 --dry-run=client -o yaml | kubectl apply -f -
             else
-              echo "⚠️  GHCR_TOKEN not set — skipping pull secret refresh. Add it to GitHub secrets."
+              echo "⚠️  GHCR_TOKEN not set - skipping pull secret refresh. Add it to GitHub secrets."
             fi
 
-            # Upsert Grafana admin credentials.
-            # GitHub secret GF_ADMIN_USER  → k8s key GF_SECURITY_ADMIN_USER
-            # GitHub secret GF_ADMIN_PASSWORD → k8s key GF_SECURITY_ADMIN_PASSWORD
-            if [ -n "${GF_ADMIN_USER}" ] && [ -n "${GF_ADMIN_PASSWORD}" ]; then
-              kubectl create secret generic grafana-secrets \
-                --from-literal=GF_SECURITY_ADMIN_USER="${GF_ADMIN_USER}" \
-                --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GF_ADMIN_PASSWORD}" \
-                -n void \
-                --dry-run=client -o yaml | kubectl apply -f -
-              echo "✅ grafana-secrets upserted"
-            else
-              echo "⚠️  GF_ADMIN_USER or GF_ADMIN_PASSWORD not set — skipping grafana-secrets upsert."
+            # Monitoring stack (Grafana/Prometheus/Alertmanager) only exists in prod.
+            if [ "${DEPLOY_ENV}" = "prod" ]; then
+              if [ -n "${GF_ADMIN_USER}" ] && [ -n "${GF_ADMIN_PASSWORD}" ]; then
+                kubectl create secret generic grafana-secrets \
+                  --from-literal=GF_SECURITY_ADMIN_USER="${GF_ADMIN_USER}" \
+                  --from-literal=GF_SECURITY_ADMIN_PASSWORD="${GF_ADMIN_PASSWORD}" \
+                  -n void \
+                  --dry-run=client -o yaml | kubectl apply -f -
+                echo "✅ grafana-secrets upserted"
+              else
+                echo "⚠️  GF_ADMIN_USER or GF_ADMIN_PASSWORD not set - skipping grafana-secrets upsert."
+              fi
+
+              kubectl create configmap grafana-dashboards-json \
+                --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
+                -n void --dry-run=client -o yaml | kubectl apply -f -
             fi
 
-            # Sync Grafana dashboard ConfigMap (idempotent)
-            kubectl create configmap grafana-dashboards-json \
-              --from-file=sfu-dashboard.json=docker/grafana/provisioning/dashboards/sfu-dashboard.json \
-              -n void --dry-run=client -o yaml | kubectl apply -f -
+            # Apply the rendered manifest for this environment
+            kubectl apply -f "${RENDERED_FILE}"
 
-            # Apply the rendered manifest
-            kubectl apply -f deployment-k3s-rendered.yaml
+            echo "=== Waiting for signaling-server rollout (${K8S_NAMESPACE}) ==="
+            kubectl rollout status daemonset/signaling-server -n "${K8S_NAMESPACE}" --timeout=180s
 
-            echo "=== Waiting for signaling-server rollout ==="
-            kubectl rollout status daemonset/signaling-server -n void --timeout=180s
+            if [ "${DEPLOY_ENV}" = "prod" ]; then
+              echo "=== Waiting for monitoring stack (non-blocking) ==="
+              kubectl rollout status deployment/prometheus   -n void --timeout=300s || echo "⚠️  Prometheus not ready (check port 9090 conflicts)"
+              kubectl rollout status deployment/grafana      -n void --timeout=120s || echo "⚠️  Grafana not ready"
+              kubectl rollout status deployment/alertmanager -n void --timeout=120s || echo "⚠️  Alertmanager not ready (check alertmanager-secrets)"
 
-            echo "=== Waiting for monitoring stack (non-blocking) ==="
-            # Monitoring pods are not critical path — warn but don't fail the deploy.
-            kubectl rollout status deployment/prometheus   -n void --timeout=300s || echo "⚠️  Prometheus not ready (check port 9090 conflicts)"
-            kubectl rollout status deployment/grafana      -n void --timeout=120s || echo "⚠️  Grafana not ready"
-            kubectl rollout status deployment/alertmanager -n void --timeout=120s || echo "⚠️  Alertmanager not ready (check alertmanager-secrets)"
-
-            # Sync Grafana admin password with the GitHub secret on every deploy.
-            # grafana-cli writes directly to the Grafana database so env var changes
-            # (which only affect first-boot initialisation) are always overridden.
-            if [ -n "${GF_ADMIN_PASSWORD}" ]; then
-              echo "=== Syncing Grafana admin password ==="
-              kubectl exec -n void deploy/grafana -- \
-                grafana-cli admin reset-admin-password "${GF_ADMIN_PASSWORD}" \
-                && echo "✅ Grafana password synced" \
-                || echo "⚠️  grafana-cli reset failed (pod may still be starting)"
+              if [ -n "${GF_ADMIN_PASSWORD}" ]; then
+                echo "=== Syncing Grafana admin password ==="
+                kubectl exec -n void deploy/grafana -- \
+                  grafana-cli admin reset-admin-password "${GF_ADMIN_PASSWORD}" \
+                  && echo "✅ Grafana password synced" \
+                  || echo "⚠️  grafana-cli reset failed (pod may still be starting)"
+              fi
             fi
 
-            echo "=== Health checks ==="
-            curl -f --max-time 15 http://localhost:3001/health && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
+            echo "=== Health check (${DEPLOY_ENV}, port ${HEALTH_PORT}) ==="
+            curl -f --max-time 15 "http://localhost:${HEALTH_PORT}/health" && echo "✅ Signaling OK" || { echo "❌ Signaling FAILED"; exit 1; }
 
             kubectl image prune -a --force 2>/dev/null || true
-            echo "🚀 Déploiement k3s terminé avec succès !"
+            echo "🚀 Déploiement k3s (${DEPLOY_ENV}) terminé avec succès !"
 
-  # ─────────────────────────────────────────────────────────────────────────
+  # -----------------------------------------------------------------------
   # Slack notification regardless of success or failure.
-  # ─────────────────────────────────────────────────────────────────────────
+  # -----------------------------------------------------------------------
   notify:
     needs: build-and-deploy
     if: always()
     runs-on: ubuntu-latest
     steps:
+      - name: Determine deploy target (for message text)
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "DEPLOY_ENV=prod" >> $GITHUB_ENV
+          else
+            echo "DEPLOY_ENV=staging" >> $GITHUB_ENV
+          fi
       - name: Send Slack Notification
         uses: 8398a7/action-slack@v3
         with:
           status: ${{ job.status }}
-          text: "Déploiement SFU k3s: ${{ job.status }} — ${{ github.event.head_commit.message }}"
+          text: "Déploiement SFU k3s (${{ env.DEPLOY_ENV }}): ${{ job.status }} — ${{ github.event.head_commit.message }}"
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
-

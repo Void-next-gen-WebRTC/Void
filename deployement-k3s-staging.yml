@@ -1,0 +1,40 @@
+# ============================================================
+#  Void — k3s Staging Deployment Manifest
+#  Mirrors deployment-k3s.yaml (prod), scoped to the void-staging
+#  namespace and the staging-api.voidsfu.com hostname.
+#
+#  Reuses the same cluster-wide letsencrypt-prod ClusterIssuer —
+#  no separate issuer needed.
+# ============================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: void-staging
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    project: void
+    environment: staging
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: void-staging-tls
+  namespace: void-staging
+spec:
+  secretName: void-staging-tls-certs
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: staging-api.voidsfu.com
+  dnsNames:
+    - staging-api.voidsfu.com
+
+# ------------------------------------------------------------
+# The rest (signaling-server Deployment/Service, IngressRoute,
+# runtime secrets) will be added here once we get to that step —
+# kept minimal for now so the namespace + certificate can be
+# applied and validated on their own first.
+# ------------------------------------------------------------

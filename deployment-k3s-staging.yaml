@@ -1,0 +1,266 @@
+# ============================================================
+#  Void - k3s Staging Deployment Manifest
+#  Mirrors deployment-k3s.yaml (prod), scoped to the void-staging
+#  namespace and the staging-api.voidsfu.com hostname.
+#
+#  Reuses the same cluster-wide letsencrypt-prod ClusterIssuer -
+#  no separate issuer needed.
+#
+#  IMPORTANT - port split from prod:
+#  Prod's signaling-server uses hostNetwork with hardcoded
+#  hostPort 3001 (HTTP) / 10000 (UDP ICE). Since staging runs on
+#  the SAME single-node Oracle VM, it cannot bind those same
+#  host ports - they'd conflict with the prod pod. Staging uses
+#  3002 (HTTP) / 10001 (UDP ICE) instead.
+#  -> You'll need to open 10001/udp (and 3002/tcp if not already
+#    open) on the Oracle Cloud security list, same as you did
+#    for prod's 10000/udp.
+#
+#  No monitoring stack (Prometheus/Grafana/Alertmanager) here -
+#  staging only needs the signaling-server itself.
+# ============================================================
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: void-staging
+  labels:
+    app.kubernetes.io/managed-by: kubectl
+    project: void
+    environment: staging
+
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: void-staging-tls
+  namespace: void-staging
+spec:
+  secretName: void-staging-tls-certs
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  commonName: staging-api.voidsfu.com
+  dnsNames:
+    - staging-api.voidsfu.com
+
+---
+# ============================================================
+# PersistentVolumeClaim - Signaling Server data (staging)
+# ============================================================
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: signaling-data
+  namespace: void-staging
+  labels:
+    app: signaling-server
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+# ============================================================
+# DaemonSet - Signaling Server (staging)
+# Same shape as prod's DaemonSet: hostNetwork for direct WebRTC
+# ICE/UDP access, own image pull secret, own TLS + data volumes.
+# Ports are shifted (3002 / 10001) to avoid colliding with prod
+# on the same node - see header note.
+# ============================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: signaling-server
+  namespace: void-staging
+  labels:
+    app: signaling-server
+    app.kubernetes.io/part-of: void-staging
+spec:
+  selector:
+    matchLabels:
+      app: signaling-server
+  template:
+    metadata:
+      labels:
+        app: signaling-server
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      restartPolicy: Always
+
+      securityContext:
+        runAsNonRoot: false
+
+      # Pull secret for GHCR private image - create once in this namespace too:
+      # kubectl create secret docker-registry ghcr-secret
+      #   --docker-server=ghcr.io --docker-username=<actor> --docker-password=<PAT> -n void-staging
+      imagePullSecrets:
+        - name: ghcr-secret
+
+      containers:
+        - name: signaling-server
+          image: ${STAGING_SIGNALING_IMAGE}
+          imagePullPolicy: Always
+
+          securityContext:
+            privileged: true
+
+          env:
+            - name: RUST_LOG
+              value: "info"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: void-staging-signaling-secrets
+                  key: JWT_SECRET
+            - name: PUBLIC_IP
+              valueFrom:
+                secretKeyRef:
+                  name: void-staging-signaling-secrets
+                  key: PUBLIC_IP
+            # Distinct UDP mux port from prod (10000) so both can run
+            # side by side on the same node without a port clash.
+            - name: ICE_UDP_PORT
+              value: "10001"
+
+          ports:
+            - name: http
+              containerPort: 3002
+              protocol: TCP
+              hostPort: 3002
+            - name: ice-udp
+              containerPort: 10001
+              protocol: UDP
+              hostPort: 10001
+
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /app/cert.pem
+              subPath: tls.crt
+              readOnly: true
+            - name: tls-certs
+              mountPath: /app/key.pem
+              subPath: tls.key
+              readOnly: true
+            - name: signaling-data
+              mountPath: /app/data
+
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3002
+              scheme: HTTP
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "1000m"
+              memory: "512Mi"
+
+      volumes:
+        - name: tls-certs
+          secret:
+            secretName: void-staging-tls-certs
+        - name: signaling-data
+          persistentVolumeClaim:
+            claimName: signaling-data
+
+---
+# ============================================================
+# Service - Signaling Server (staging)
+# ============================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: signaling-server
+  namespace: void-staging
+  labels:
+    app: signaling-server
+spec:
+  selector:
+    app: signaling-server
+  ports:
+    - name: http
+      port: 3002
+      targetPort: 3002
+      protocol: TCP
+  type: ClusterIP
+
+---
+# ============================================================
+# Traefik Middleware - forward X-Forwarded-Proto: https (staging)
+# Middlewares are namespace-scoped, so this must be duplicated
+# from the void namespace rather than reused.
+# ============================================================
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: void-staging-forward-proto
+  namespace: void-staging
+spec:
+  headers:
+    customRequestHeaders:
+      X-Forwarded-Proto: "https"
+
+---
+# ============================================================
+# IngressRoute - Traefik (staging)
+#
+# staging-api.voidsfu.com/api/*  -> signaling-server:3002
+# staging-api.voidsfu.com/ws     -> signaling-server:3002
+# staging-api.voidsfu.com/health -> signaling-server:3002
+#
+# No monitoring routes - staging is signaling-server only.
+# ============================================================
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: void-staging-ingress
+  namespace: void-staging
+  labels:
+    app.kubernetes.io/part-of: void-staging
+spec:
+  entryPoints:
+    - websecure
+  tls:
+    secretName: void-staging-tls-certs
+  routes:
+    - match: Host(`staging-api.voidsfu.com`) && PathPrefix(`/api`)
+      kind: Rule
+      middlewares:
+        - name: void-staging-forward-proto
+      services:
+        - name: signaling-server
+          port: 3002
+    - match: Host(`staging-api.voidsfu.com`) && Path(`/ws`)
+      kind: Rule
+      middlewares:
+        - name: void-staging-forward-proto
+      services:
+        - name: signaling-server
+          port: 3002
+    - match: Host(`staging-api.voidsfu.com`) && Path(`/health`)
+      kind: Rule
+      services:
+        - name: signaling-server
+          port: 3002
