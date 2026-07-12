@@ -74,3 +74,6 @@ lerna-debug.log*
 
 # Dashboard notes (not source code)
 apps/desktop/dashboard-settings.txt
+
+# pnpm store cache
+/.pnpm-store/*
