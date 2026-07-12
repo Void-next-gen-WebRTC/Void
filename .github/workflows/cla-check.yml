@@ -24,7 +24,7 @@ jobs:
         with:
           path-to-signatures: 'signatures/cla.json'
           path-to-document: 'https://github.com/Void-next-gen-WebRTC/Void/blob/main/CLA.md'
-          branch: 'main'
+          branch: 'cla-signatures'
           allowlist: dependabot*,renovate*,bot*
           create-file-commit-message: 'docs: CLA signed'
           signed-commit-message: 'CLA has been signed'
