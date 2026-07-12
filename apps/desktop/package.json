@@ -43,10 +43,10 @@
     "@vitejs/plugin-react": "^4.6.0",
     "autoprefixer": "^10.4.27",
     "jsdom": "^29.0.2",
-    "postcss": "^8.5.8",
+    "postcss": "^8.5.10",
     "tailwind": "^4.0.0",
     "typescript": "~5.8.3",
-    "vite": "^7.0.4",
+    "vite": "^7.3.5",
     "vitest": "^4.1.4"
   }
 }
