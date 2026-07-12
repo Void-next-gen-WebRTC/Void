@@ -6,57 +6,18 @@
 
 ```mermaid
 graph TB
-    subgraph "Contexts (Business Logic)"
-        AUTH["AuthContext<br/>Local identity + JWT + server sync"]
-        VOICE["VoiceContext<br/>WebRTC SFU · WebSocket signaling<br/>AudioWorklet DSP pipeline"]
-        STREAM["StreamContext<br/>Screen capture · WASM analyzer worker"]
-        CHAT["ChatContext<br/>Messages · localStorage persistence"]
-        DM["DmContext<br/>1-to-1 direct messages over the auth WS"]
-        SERVER["ServerContext<br/>Servers & channels management"]
-        TOAST["ToastContext<br/>Ephemeral notifications"]
-        BENTO["BentoLayoutContext<br/>Tauri-driven panel layout system"]
-    end
+    COMPONENTS["<b>Components (Dumb UI)</b><br/>auth · channel · chat · layout<br/>settings · sidebar · stream · ui"]
+    CONTEXTS["<b>Contexts (Business Logic)</b><br/>Auth · Voice · Stream · Chat<br/>Dm · Server · Toast · Bento"]
+    HOOKS["<b>Hooks (State Logic)</b><br/>useDashboardState · useBentoLayout<br/>useNetworkStats · usePushToTalk<br/>useVoiceActivity · useProfileSettings"]
+    API["<b>API Layer</b><br/>http-client · auth.api<br/>friends.ws · signalingBus"]
+    WORKERS["<b>Workers (Off main thread)</b><br/>noise-gate.worklet · analyzer.worker"]
 
-    subgraph "Hooks (State Logic)"
-        H1["useDashboardState — main orchestrator"]
-        H2["useBentoLayout — Tauri IPC bridge"]
-        H3["useBentoDrag / useBentoResize"]
-        H4["useNetworkStats — WebRTC stats via WASM"]
-        H5["usePushToTalk — PTT keybinding"]
-        H6["useVoiceActivity — VAD detection"]
-        H7["useProfileSettings — profile editing"]
-    end
-
-    subgraph "Components (Dumb UI)"
-        C_AUTH["auth/ — LoginView"]
-        C_CHAN["channel/ — ChannelItem · ChannelList · CreateChannelModal"]
-        C_CHAT["chat/ — ChatPanel"]
-        C_LAYOUT["layout/ — MainLayout · ChannelPanel · SidebarPanel · TitleBar"]
-        C_SETTINGS["settings/ — Activity · Profile · Voice · Update"]
-        C_SIDEBAR["sidebar/ — ServerSidebar · SidebarContent · UserFooter · MembersPanel"]
-        C_STREAM["stream/ — StreamCard · VoiceAudioRenderer"]
-        C_UI["ui/ — Avatar · SelectInput · Modals · ToastContainer"]
-    end
-
-    subgraph "API Layer"
-        HTTP["http-client.ts<br/>Protobuf + JSON content negotiation"]
-        AUTH_API["auth.api.ts<br/>register · login · getMe · search"]
-        FRIENDS_WS["friends.ws.ts<br/>WS-RPC: list · pending · send · accept · reject · remove"]
-        FRIENDS_BUS["signalingBus.ts<br/>Push events: FriendRequestReceived/Accepted/Removed"]
-    end
-
-    subgraph "Workers (Off main thread)"
-        WORKLET["noise-gate.worklet.ts<br/>RNNoise + SmartGate + TransientSuppressor"]
-        ANALYZER["analyzer.worker.ts<br/>Video frame analysis via WASM"]
-    end
-
-    C_AUTH & C_CHAN & C_CHAT & C_LAYOUT & C_SETTINGS & C_SIDEBAR & C_STREAM & C_UI --> AUTH & VOICE & STREAM & CHAT & SERVER & TOAST & BENTO
-    AUTH & VOICE & STREAM --> H1 & H2 & H4 & H5 & H6 & H7
-    H1 --> HTTP --> AUTH_API & FRIENDS_WS
-    H1 --> FRIENDS_BUS
-    VOICE --> WORKLET
-    STREAM --> ANALYZER
+    COMPONENTS --> CONTEXTS --> HOOKS
+    HOOKS --> API
+    HOOKS --> WORKERS
 ```
+
+*Each box lists its sub-modules — see [File Structure](#file-structure) below for the full breakdown.*
 
 ## File Structure
 
@@ -173,56 +134,18 @@ Frontend **React 19** + **Vite 7** + **TypeScript** avec **TailwindCSS v4**. Arc
 
 ```mermaid
 graph TB
-    subgraph "Contexts (Logique Métier)"
-        AUTH["AuthContext<br/>Identité locale + JWT + sync serveur"]
-        VOICE["VoiceContext<br/>WebRTC SFU · Signaling WebSocket<br/>Pipeline DSP AudioWorklet"]
-        STREAM["StreamContext<br/>Capture d'écran · Worker d'analyse WASM"]
-        CHAT["ChatContext<br/>Messages · Persistance localStorage"]
-        SERVER["ServerContext<br/>Gestion serveurs & channels"]
-        TOAST["ToastContext<br/>Notifications éphémères"]
-        BENTO["BentoLayoutContext<br/>Système de layout piloté par Tauri"]
-    end
+    COMPONENTS["<b>Composants (UI muette)</b><br/>auth · channel · chat · layout<br/>settings · sidebar · stream · ui"]
+    CONTEXTS["<b>Contexts (Logique Métier)</b><br/>Auth · Voice · Stream · Chat<br/>Dm · Server · Toast · Bento"]
+    HOOKS["<b>Hooks (Logique d'État)</b><br/>useDashboardState · useBentoLayout<br/>useNetworkStats · usePushToTalk<br/>useVoiceActivity · useProfileSettings"]
+    API["<b>Couche API</b><br/>http-client · auth.api<br/>friends.ws · signalingBus"]
+    WORKERS["<b>Workers (Hors thread principal)</b><br/>noise-gate.worklet · analyzer.worker"]
 
-    subgraph "Hooks (Logique d'État)"
-        H1["useDashboardState — orchestrateur principal"]
-        H2["useBentoLayout — pont IPC Tauri"]
-        H3["useBentoDrag / useBentoResize"]
-        H4["useNetworkStats — stats WebRTC via WASM"]
-        H5["usePushToTalk — raccourci PTT"]
-        H6["useVoiceActivity — détection VAD"]
-        H7["useProfileSettings — édition de profil"]
-    end
-
-    subgraph "Composants (UI muette)"
-        C_AUTH["auth/ — LoginView"]
-        C_CHAN["channel/ — ChannelItem · ChannelList · CreateChannelModal"]
-        C_CHAT["chat/ — ChatPanel"]
-        C_LAYOUT["layout/ — MainLayout · ChannelPanel · SidebarPanel · TitleBar"]
-        C_SETTINGS["settings/ — Activité · Profil · Voix · Mise à jour"]
-        C_SIDEBAR["sidebar/ — ServerSidebar · SidebarContent · UserFooter · MembresPanel"]
-        C_STREAM["stream/ — StreamCard · VoiceAudioRenderer"]
-        C_UI["ui/ — Avatar · SelectInput · Modals · ToastContainer"]
-    end
-
-    subgraph "Couche API"
-        HTTP["http-client.ts<br/>Négociation de contenu Protobuf + JSON"]
-        AUTH_API["auth.api.ts<br/>register · login · getMe · search"]
-        FRIENDS_WS["friends.ws.ts<br/>WS-RPC : list · pending · send · accept · reject · remove"]
-        FRIENDS_BUS["signalingBus.ts<br/>Événements push : FriendRequestReceived/Accepted/Removed"]
-    end
-
-    subgraph "Workers (Hors thread principal)"
-        WORKLET["noise-gate.worklet.ts<br/>RNNoise + SmartGate + TransientSuppressor"]
-        ANALYZER["analyzer.worker.ts<br/>Analyse de frames vidéo via WASM"]
-    end
-
-    C_AUTH & C_CHAN & C_CHAT & C_LAYOUT & C_SETTINGS & C_SIDEBAR & C_STREAM & C_UI --> AUTH & VOICE & STREAM & CHAT & SERVER & TOAST & BENTO
-    AUTH & VOICE & STREAM --> H1 & H2 & H4 & H5 & H6 & H7
-    H1 --> HTTP --> AUTH_API & FRIENDS_WS
-    H1 --> FRIENDS_BUS
-    VOICE --> WORKLET
-    STREAM --> ANALYZER
+    COMPONENTS --> CONTEXTS --> HOOKS
+    HOOKS --> API
+    HOOKS --> WORKERS
 ```
+
+*Chaque bloc liste ses sous-modules — voir [Structure des Fichiers](#structure-des-fichiers) ci-dessous pour le détail complet.*
 
 ## Structure des Fichiers
 
