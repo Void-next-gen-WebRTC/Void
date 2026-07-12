@@ -34,6 +34,19 @@ pub fn is_dev_build() -> bool {
 #[derive(Debug)]
 struct PinningVerifier;
 
+fn is_pinned_host(hostname: &str) -> bool {
+    matches!(
+        hostname,
+        "voidsfu.com" | "www.voidsfu.com" | "api.voidsfu.com" | "89.168.59.45"
+    )
+}
+
+fn pin_mismatch_error(hostname: &str, cert_hash: &str) -> Error {
+    Error::General(format!(
+        "SPKI pin mismatch for {hostname}: expected {PRIMARY_PIN} or {BACKUP_PIN}, got {cert_hash}"
+    ))
+}
+
 impl ServerCertVerifier for PinningVerifier {
     fn verify_server_cert(
         &self,

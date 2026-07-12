@@ -17,7 +17,7 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 
 ### Prerequisites
 * **Node.js LTS** and **pnpm v9+** (do not use npm or yarn)
-* **Rust (stable toolchain)** (for `core-wasm`, `desktop` and `signaling-server`)
+* **Rust via [rustup](https://rustup.rs)** (for `core-wasm`, `desktop` and `signaling-server`) — the exact toolchain version is pinned in [`rust-toolchain.toml`](./rust-toolchain.toml); rustup installs and uses it automatically the first time you run `cargo` in this repo, no manual `rustup install` needed
 * **Git 2.30+**
 
 ### Local Setup
@@ -118,22 +118,26 @@ Allowed prefixes:
 
 ### 4. Local Testing
 
-Before submitting a Pull Request, ensure that the full verification pipeline passes locally to prevent CI runner failures:
+Before submitting a Pull Request, ensure that the full verification pipeline passes locally to prevent CI runner failures. The Rust checks are wrapped as `cargo` aliases (see [`.cargo/config.toml`](./.cargo/config.toml)) so you don't have to remember or retype the flags CI actually uses:
 
 ```bash
-# Run the complete Rust workspace test suite (all 4 crates)
-cargo test --workspace
+# Rust: full workspace test suite (all 4 crates) — alias for `cargo test --workspace --verbose`
+cargo test-all
+
+# Rust: formatting check — alias for `cargo fmt --all -- --check`
+cargo fmt-check
+
+# Rust: lint, warnings-as-errors — alias for `cargo clippy --workspace --all-targets -- -D warnings`
+cargo lint
 
 # Run TypeScript type checking
 pnpm --filter desktop exec tsc --noEmit
 
 # Run the frontend Vitest suite
 pnpm --filter desktop test:run
-
-# Static analysis and formatting checks
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+These aliases run the exact same commands as [`ci.yml`](./.github/workflows/ci.yml), against the exact toolchain version pinned in `rust-toolchain.toml` — if they pass locally, CI should too.
 
 ---
 

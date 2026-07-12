@@ -1,0 +1,7 @@
+# Shortcuts for the checks CI runs on every PR (see .github/workflows/ci.yml
+# and CONTRIBUTING.md) - run them locally before pushing so CI doesn't
+# surprise you.
+[alias]
+lint = "clippy --workspace --all-targets -- -D warnings"
+fmt-check = "fmt --all -- --check"
+test-all = "test --workspace --verbose"

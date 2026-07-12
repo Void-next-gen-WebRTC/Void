@@ -1,0 +1,14 @@
+[toolchain]
+# Pinned so `cargo clippy`/`fmt`/`test` behave identically for every
+# contributor regardless of when they installed Rust — rustup reads this
+# file automatically and installs/uses this exact version (no manual
+# `rustup install` step needed, it's transparent on first `cargo` invocation
+# in this repo).
+#
+# New clippy lints land on every stable release; without a pin, a
+# contributor on a newer toolchain than the one CI/other contributors use
+# can see `cargo lint` fail (or pass) differently than everyone else for
+# reasons that have nothing to do with their actual change. Bump this
+# deliberately, in its own PR, when upgrading.
+channel = "1.97.0"
+components = ["clippy", "rustfmt"]
