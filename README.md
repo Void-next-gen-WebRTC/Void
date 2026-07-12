@@ -72,11 +72,17 @@ void/
 │   └── public/worker/         # Compiled audio worklets
 ├── packages/
 │   ├── core-wasm/             # Rust → WASM (DSP, codec, video, network)
-│   └── signaling-server/      # Rust signaling + SFU + auth + friends
+│   ├── void-sfu/               # SFU engine (webrtc-rs): ICE/SDP, RTP/SCTP forwarding
+│   └── signaling-server/      # Rust REST + WS signaling, embeds void-sfu
+├── docs/                      # Documentation hub — see docs/README.md
 ├── docker/                    # Prometheus, Grafana, Alertmanager configs
 ├── Cargo.toml                 # Rust workspace
 └── pnpm-workspace.yaml        # pnpm workspace
 ```
+
+## Documentation
+
+Full docs — deployment/infra, security model, generated Rust API reference — live in [`docs/`](./docs/README.md).
 
 ## Key Flows
 
@@ -154,19 +160,17 @@ pnpm build:worklet
 pnpm tauri build
 ```
 
-## Observability (Docker)
+## Observability (local dev)
 
 ```sh
 docker compose up -d
 ```
 
-Starts Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`).
+Starts Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`) locally — useful for developing against the monitoring stack without touching the real cluster.
 
-## Observability & Deployment
+## Deployment
 
-Production runs on a **k3s cluster** (Oracle Ampere A1 / ARM64). Every push to `main` triggers a GitHub Actions pipeline that cross-compiles the signaling server, builds and pushes the container image to GHCR, then applies the Kubernetes manifests to the cluster automatically — no manual deployment step required.
-
-See [.github/workflows/deploy-signaling.yml](./.github/workflows/deploy-signaling.yml) and [deployment-k3s.yaml](./deployment-k3s.yaml) for the full pipeline. The stack includes Prometheus, Grafana, and Alertmanager alongside the signaling server, deployed in the `void` namespace, with TLS handled by Traefik + cert-manager.
+Production and staging both run on a **k3s cluster** (Oracle Ampere A1 / ARM64), one namespace each, deployed automatically by CI (push to `main` → staging, push a `v*` tag → production). See [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) for the full setup: ports, TLS, secrets, and CI/CD flow.
 
 ## Contributing
 
@@ -184,4 +188,4 @@ Void is open to contributions. Read [CONTRIBUTING.md](./CONTRIBUTING.md) for the
 Per BSL terms, this commercial restriction has a strict expiration date. On **April 7, 2031**, this version of the software will automatically and permanently convert to the Open Source **GNU General Public License v3.0 or later (GPL-3.0-or-later)**.
 
 *For the full legally binding terms (English text and official French translation), please refer to the [LICENSE](./LICENSE) file.*
-
+

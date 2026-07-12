@@ -1,0 +1,98 @@
+# Copyright (c) 2025 Void - Business Source License 1.1
+# See LICENSE file for full terms. Production use requires a commercial license.
+#
+# Builds rustdoc for the whole Cargo workspace (core-wasm, void-sfu,
+# signaling-server, desktop) and publishes it to GitHub Pages — the
+# equivalent of `cargo doc --open`, hosted, rebuilt on every push to main.
+#
+# One-time setup required: repo Settings -> Pages -> Source: "GitHub Actions".
+# Without that, this workflow builds the docs but the deploy step has nothing
+# to publish to.
+
+name: Docs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'packages/**'
+      - 'apps/desktop/src-tauri/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-doc-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-doc-
+
+      - name: Build workspace docs
+        env:
+          RUSTDOCFLAGS: "-D warnings"
+        run: cargo doc --workspace --no-deps --all-features
+
+      # cargo doc has no root index.html of its own — this is the landing
+      # page you get at the Pages URL, linking out to each crate.
+      - name: Add landing page
+        run: |
+          cat > target/doc/index.html << 'HTML'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Void — Rust API docs</title>
+            <meta http-equiv="refresh" content="0; url=signaling_server/index.html">
+          </head>
+          <body>
+            <p>Redirecting to <a href="signaling_server/index.html">signaling_server</a>…</p>
+            <ul>
+              <li><a href="signaling_server/index.html">signaling_server</a></li>
+              <li><a href="void_sfu/index.html">void_sfu</a></li>
+              <li><a href="core_wasm/index.html">core_wasm</a></li>
+              <li><a href="desktop_lib/index.html">desktop_lib</a> (Tauri backend)</li>
+            </ul>
+          </body>
+          </html>
+          HTML
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/doc
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

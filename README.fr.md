@@ -68,11 +68,17 @@ void/
 │   └── public/worker/         # Worklets audio compilés
 ├── packages/
 │   ├── core-wasm/             # Rust → WASM (DSP, codec, vidéo, réseau)
-│   └── signaling-server/      # Signalisation Rust + SFU + auth + amis
+│   ├── void-sfu/               # Moteur SFU (webrtc-rs) : ICE/SDP, forwarding RTP/SCTP
+│   └── signaling-server/      # REST + WS Rust, embarque void-sfu
+├── docs/                      # Hub de documentation — voir docs/README.md
 ├── docker/                    # Configs Prometheus, Grafana, Alertmanager
 ├── Cargo.toml                 # Workspace Rust
 └── pnpm-workspace.yaml        # Workspace pnpm
 ```
+
+## Documentation
+
+La doc complète — infra/déploiement, modèle de sécurité, référence API Rust générée — vit dans [`docs/`](./docs/README.md).
 
 ## Flux Principaux
 
@@ -150,19 +156,17 @@ pnpm build:worklet
 pnpm tauri build
 ```
 
-## Observabilité (Docker)
+## Observabilité (dev local)
 
 ```sh
 docker compose up -d
 ```
 
-Lance Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`).
+Lance Prometheus (`:9090`), Grafana (`:3000`), Alertmanager (`:9093`), Node Exporter (`:9100`) en local — utile pour développer contre la stack de monitoring sans toucher au vrai cluster.
 
-## Observabilité & Déploiement
+## Déploiement
 
-La production s'exécute sur un **cluster k3s** (Oracle Ampere A1 / ARM64). Chaque push vers `main` déclenche un pipeline GitHub Actions qui compile de manière croisée le serveur de signalisation, construit et pousse l'image de conteneur vers GHCR, puis applique automatiquement les manifestes Kubernetes au cluster — aucune étape de déploiement manuel requise.
-
-Consultez [.github/workflows/deploy-signaling.yml](./.github/workflows/deploy-signaling.yml) et [deployment-k3s.yaml](./deployment-k3s.yaml) pour le pipeline complet. La pile comprend Prometheus, Grafana et Alertmanager aux côtés du serveur de signalisation, déployés dans l'espace de noms `void`, avec TLS géré par Traefik + cert-manager.
+La production et le staging tournent tous les deux sur un **cluster k3s** (Oracle Ampere A1 / ARM64), chacun dans son propre namespace, déployés automatiquement par la CI (push sur `main` → staging, push d'un tag `v*` → production). Voir [docs/DEPLOYMENT.md](./docs/DEPLOYMENT.md) (en anglais) pour le détail complet : ports, TLS, secrets, flux CI/CD.
 
 ## Contribuer
 
