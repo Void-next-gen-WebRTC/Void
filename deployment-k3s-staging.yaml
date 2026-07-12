@@ -113,6 +113,11 @@ spec:
           env:
             - name: RUST_LOG
               value: "info"
+            # App defaults to 3001 (or 8080 in DEV_MODE) if PORT isn't set.
+            # Must be explicit here so it doesn't collide with prod's 3001
+            # on the same node (hostNetwork).
+            - name: PORT
+              value: "3002"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
