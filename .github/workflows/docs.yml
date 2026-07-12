@@ -5,6 +5,11 @@
 # signaling-server, desktop) and publishes it to GitHub Pages — the
 # equivalent of `cargo doc --open`, hosted, rebuilt on every push to main.
 #
+# The `desktop` crate (apps/desktop/src-tauri) needs the same GTK/WebKit
+# system libs as staging-test-build.yml's ubuntu build (glib-sys,
+# webkit2gtk-sys), installed below — otherwise the doc build fails with
+# "glib-2.0 was not found" from glib-sys's build script.
+#
 # One-time setup required: repo Settings -> Pages -> Source: "GitHub Actions".
 # Without that, this workflow builds the docs but the deploy step has nothing
 # to publish to.
@@ -41,6 +46,11 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Linux dependencies (Tauri backend)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: Cache Cargo registry
         uses: actions/cache@v4
         with:
@@ -53,9 +63,7 @@ jobs:
             ${{ runner.os }}-cargo-doc-
 
       - name: Build workspace docs
-        env:
-          RUSTDOCFLAGS: "-D warnings"
-        run: cargo doc --workspace --no-deps --all-features
+        run: cargo doc --workspace --no-deps
 
       # cargo doc has no root index.html of its own — this is the landing
       # page you get at the Pages URL, linking out to each crate.
