@@ -124,6 +124,15 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ env.TARGET_PLATFORM }}
 
+      # Defensive redundancy: the action's `targets:` input should already add
+      # this, but a run was observed failing with "can't find crate for std"
+      # for aarch64-unknown-linux-gnu (rust-std component missing) even though
+      # the step above reported success. Explicitly re-running `rustup target
+      # add` is idempotent (no-op if already present) and guarantees the
+      # rust-std component is there before we try to cross-compile.
+      - name: Ensure ARM64 std target is installed
+        run: rustup target add ${{ env.TARGET_PLATFORM }}
+
       - name: Install ARM64 cross-linker + envsubst
         run: |
           sudo apt-get update
