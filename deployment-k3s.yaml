@@ -749,8 +749,13 @@ metadata:
 data:
   turnserver.conf.tpl: |
     listening-port=3478
-    min-port=49160
-    max-port=49200
+    # Relay port range deliberately kept inside the Oracle Security List's
+    # existing 10000-20000 UDP rule ("WebRTC Media Streams") so no new UDP
+    # rule is needed — only 11000-11040, well clear of 10000 itself (used
+    # by the signaling-server's own ICE_UDP_PORT mux). Only 3478 (TCP+UDP,
+    # TURN control channel) needs a new Security List entry.
+    min-port=11000
+    max-port=11040
     fingerprint
     lt-cred-mech
     use-auth-secret
@@ -782,7 +787,8 @@ data:
 #
 # Why DaemonSet + hostNetwork (mirrors signaling-server above)?
 #   coturn needs a predictable, real host port for the TURN control
-#   channel (3478) plus a UDP relay port range (49160-49200). Both must
+#   channel (3478) plus a UDP relay port range (11000-11040, chosen to sit
+#   inside the already-open 10000-20000 Security List rule). Both must
 #   be reachable via Oracle Cloud's 1:1 NAT; hostNetwork exposes the
 #   real node IP directly instead of a bridge-network IP that would be
 #   advertised as an unreachable relay candidate.
@@ -868,7 +874,7 @@ spec:
               containerPort: 3478
               protocol: TCP
               hostPort: 3478
-            # The 49160-49200 relay range isn't expressible as discrete
+            # The 11000-11040 relay range isn't expressible as discrete
             # containerPort entries; with hostNetwork: true coturn binds it
             # directly on the host, so no port-mapping declaration is
             # required for traffic to flow — this is purely informational.

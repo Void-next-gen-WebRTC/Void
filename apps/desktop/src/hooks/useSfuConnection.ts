@@ -1,3 +1,4 @@
+// @ts-ignore
 import { useCallback, useRef } from 'react';
 import { ServerSignal } from '../types/serverSignal.type';
 import UseSfuConnectionProps from '../models/voice/useSfuConnectionProps.model';
