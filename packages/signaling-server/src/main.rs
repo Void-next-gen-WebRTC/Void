@@ -64,10 +64,25 @@ async fn main() {
     };
     let sfu = Sfu::with_api(SfuConfig::default(), api);
 
-    let auth_store = store::Store::load("auth_store.bin");
+    // All persisted `.bin` files live under DATA_DIR so they land on the
+    // mounted PersistentVolumeClaim (`/app/data` in deployment-k3s*.yaml)
+    // instead of the container's ephemeral filesystem. Before this, these
+    // were bare relative filenames which resolved against the process's
+    // CWD (`/app`, the Dockerfile WORKDIR) — a *different* path from the
+    // PVC mount, so every rollout silently started from an empty store
+    // (servers/auth/bans all reset on redeploy, even though the volume
+    // itself was never wiped). Defaults to "." for local/dev runs where
+    // there is no volume and CWD is the natural place to persist state.
+    let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| ".".to_string());
+    if let Err(e) = std::fs::create_dir_all(&data_dir) {
+        tracing::warn!("Failed to create DATA_DIR={data_dir}: {e:?}");
+    }
+    let bin_path = |name: &str| format!("{}/{}", data_dir.trim_end_matches('/'), name);
+
+    let auth_store = store::Store::load(&bin_path("auth_store.bin"));
     store::spawn_flusher(auth_store.clone());
 
-    let server_registry = ServerRegistry::load("servers.bin");
+    let server_registry = ServerRegistry::load(&bin_path("servers.bin"));
     let server_registry_for_auth = server_registry.clone();
     gateway::registry::spawn_flusher(server_registry.clone());
 
@@ -97,7 +112,7 @@ async fn main() {
     metrics::spawn_stats_broadcaster(Arc::clone(&app_state));
 
     // Fraud detection subsystem
-    let ban_store = fraud::store::BanStore::load("ban_store.bin");
+    let ban_store = fraud::store::BanStore::load(&bin_path("ban_store.bin"));
     fraud::store::spawn_flusher(ban_store.clone());
 
     let fraud_detector = Arc::new(fraud::detector::FraudDetector::new());

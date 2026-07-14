@@ -626,6 +626,14 @@ spec:
             # ICE_UDP_PORT: fixed single UDP mux socket — prevents Docker/k8s bridge IP leaks
             - name: ICE_UDP_PORT
               value: "10000"
+            # DATA_DIR: where auth_store.bin / servers.bin / ban_store.bin are
+            # persisted. MUST match the signaling-data PVC's mountPath below —
+            # the binary's Dockerfile WORKDIR is /app, which is NOT the same
+            # path as the mounted volume, so without this every rollout
+            # silently started from an empty store (servers/accounts/bans all
+            # reset on redeploy even though the PVC itself was untouched).
+            - name: DATA_DIR
+              value: "/app/data"
             # TURN_URLS / TURN_SECRET: enables the signaling server to mint
             # short-lived TURN credentials (see packages/signaling-server/src/turn.rs)
             # pushed to clients as ServerMessage::IceServers right after auth.

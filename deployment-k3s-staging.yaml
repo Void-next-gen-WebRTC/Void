@@ -132,6 +132,12 @@ spec:
             # side by side on the same node without a port clash.
             - name: ICE_UDP_PORT
               value: "10001"
+            # DATA_DIR: must match the signaling-data PVC's mountPath below.
+            # Same rationale as prod's deployment-k3s.yaml — the Dockerfile
+            # WORKDIR (/app) is not the mounted volume path, so without this
+            # every rollout silently reset to an empty store.
+            - name: DATA_DIR
+              value: "/app/data"
 
           ports:
             - name: http

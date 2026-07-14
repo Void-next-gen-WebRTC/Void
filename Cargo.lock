@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "core-wasm"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "crc32fast",
  "criterion",
@@ -5259,7 +5259,7 @@ dependencies = [
 
 [[package]]
 name = "signaling-server"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "argon2",
  "async-trait",
@@ -6718,7 +6718,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "void-sfu"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-trait",
  "bytes",
