@@ -6,8 +6,14 @@
 #   tag push v*  -> prod    (void, deployment-k3s.yaml)
 #
 # Required secrets: PRIMARY_PIN_HASH, BACKUP_PIN_HASH, ORACLE_HOST, ORACLE_SSH_KEY,
-# DOMAIN, PUBLIC_IP, JWT_SECRET, STAGING_JWT_SECRET, GHCR_TOKEN, GF_ADMIN_USER,
-# GF_ADMIN_PASSWORD, SLACK_WEBHOOK_URL.
+# DOMAIN, PUBLIC_IP, JWT_SECRET, STAGING_JWT_SECRET, TURN_SECRET, GHCR_TOKEN,
+# GF_ADMIN_USER, GF_ADMIN_PASSWORD, SLACK_WEBHOOK_URL.
+#
+# TURN_SECRET: shared HMAC secret between signaling-server and coturn (prod
+# only - see the coturn DaemonSet in deployment-k3s.yaml). Generate once with
+# `openssl rand -hex 32` and add it as a GitHub Actions secret; this workflow
+# upserts it into void-signaling-secrets on every prod deploy, same as
+# JWT_SECRET/PUBLIC_IP below.
 #
 # ghcr-secret must exist in both void and void-staging namespaces (secrets don't
 # cross namespaces). No `paths:` filter on tag pushes - GitHub's paths diff is
@@ -229,6 +235,7 @@ jobs:
           PUBLIC_IP: ${{ secrets.PUBLIC_IP }}
           JWT_SECRET: ${{ secrets.JWT_SECRET }}
           STAGING_JWT_SECRET: ${{ secrets.STAGING_JWT_SECRET }}
+          TURN_SECRET: ${{ secrets.TURN_SECRET }}
           DEPLOY_ENV: ${{ env.DEPLOY_ENV }}
           K8S_NAMESPACE: ${{ env.K8S_NAMESPACE }}
           RENDERED_FILE: ${{ env.RENDERED_FILE }}
@@ -237,7 +244,7 @@ jobs:
           host: ${{ secrets.ORACLE_HOST }}
           username: ubuntu
           key: ${{ secrets.ORACLE_SSH_KEY }}
-          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD,PUBLIC_IP,JWT_SECRET,STAGING_JWT_SECRET,DEPLOY_ENV,K8S_NAMESPACE,RENDERED_FILE,HEALTH_PORT
+          envs: GHCR_ACTOR,GHCR_TOKEN,GF_ADMIN_USER,GF_ADMIN_PASSWORD,PUBLIC_IP,JWT_SECRET,STAGING_JWT_SECRET,TURN_SECRET,DEPLOY_ENV,K8S_NAMESPACE,RENDERED_FILE,HEALTH_PORT
           script: |
             # SSH sessions do not source .bashrc - set KUBECONFIG explicitly
             # so kubectl finds ~/.kube/config instead of the root-only /etc/rancher/k3s/k3s.yaml
@@ -258,9 +265,20 @@ jobs:
             fi
 
             if [ -n "${PUBLIC_IP}" ] && [ -n "${EFFECTIVE_JWT_SECRET}" ]; then
+              # TURN_SECRET is prod-only (coturn only runs in the void namespace,
+              # see deployment-k3s.yaml). Adding it as an extra --from-literal
+              # only when set/prod keeps the staging secret unchanged - kubectl
+              # apply merges Secret .data at the key level, so omitting a flag
+              # here does not remove a key set by a previous run.
+              SECRET_ARGS=(--from-literal=PUBLIC_IP="${PUBLIC_IP}" --from-literal=JWT_SECRET="${EFFECTIVE_JWT_SECRET}")
+              if [ "${DEPLOY_ENV}" = "prod" ] && [ -n "${TURN_SECRET}" ]; then
+                SECRET_ARGS+=(--from-literal=TURN_SECRET="${TURN_SECRET}")
+              elif [ "${DEPLOY_ENV}" = "prod" ]; then
+                echo "⚠️  TURN_SECRET not set - coturn/signaling-server will run STUN-only (see turn.rs::TurnConfig::from_env)."
+              fi
+
               kubectl create secret generic "${SIGNALING_SECRET_NAME}" \
-                --from-literal=PUBLIC_IP="${PUBLIC_IP}" \
-                --from-literal=JWT_SECRET="${EFFECTIVE_JWT_SECRET}" \
+                "${SECRET_ARGS[@]}" \
                 -n "${K8S_NAMESPACE}" \
                 --dry-run=client -o yaml | kubectl apply -f -
               echo "✅ ${SIGNALING_SECRET_NAME} upserted in ${K8S_NAMESPACE}"
