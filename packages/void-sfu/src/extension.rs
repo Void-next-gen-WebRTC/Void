@@ -38,7 +38,7 @@ pub enum Direction {
 pub struct PacketContext<'a> {
     pub source: &'a MediaSourceId,
     pub destination: Option<&'a PeerId>,
-    /// Media kind hint (`"audio"`, `"video"`, â€¦) as advertised by the
+    /// Media kind hint (`"audio"`, `"video"`, …) as advertised by the
     /// publishing track.
     pub kind: &'a str,
     pub direction: Direction,

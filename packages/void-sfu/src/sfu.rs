@@ -36,7 +36,7 @@ pub(crate) struct SfuInner {
 /// Selective Forwarding Unit handle.
 ///
 /// `Sfu` is `Clone`-cheap (just an `Arc` bump). All public methods are
-/// thread-safe and return `Result<_, SfuError>` â€” no panics, no unwraps.
+/// thread-safe and return `Result<_, SfuError>` no panics, no unwraps.
 #[derive(Clone)]
 pub struct Sfu {
     pub(crate) inner: Arc<SfuInner>,

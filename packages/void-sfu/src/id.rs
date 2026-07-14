@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 /// Cheap-clone string newtype for peer identifiers.
 ///
-/// Backed by [`Arc<str>`] so it is cloned by reference-counting only â€” no heap
+/// Backed by [`Arc<str>`] so it is cloned by reference-counting only — no heap
 /// copy. Comparison and hashing delegate to the underlying string slice.
 #[derive(Clone, Eq)]
 pub struct PeerId(Arc<str>);

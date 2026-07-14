@@ -15,10 +15,10 @@ use crate::models::IceCandidate;
 ///
 /// The SFU itself is wire-format agnostic: it only describes *what* should be
 /// delivered to *which* peer. The consumer implements [`SignalSink`] and is
-/// responsible for serialization and transport (WebSocket, QUIC, MQTT, â€¦).
+/// responsible for serialization and transport (WebSocket, QUIC, MQTT, …).
 ///
 /// SDP payloads are exposed as plain `String` (the W3C-defined session
-/// description text) and ICE candidates as the typed [`IceCandidate`] â€”
+/// description text) and ICE candidates as the typed [`IceCandidate`]
 /// the public API never leaks `serde_json` types.
 #[derive(Debug, Clone)]
 pub enum Outbound {

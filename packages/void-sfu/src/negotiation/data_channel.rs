@@ -292,7 +292,7 @@ async fn cleanup_data_channel(
     source_id: &DataChannelSourceId,
 ) {
     // Remove the forwarder from any room that holds it; in practice only
-    // one room can â€” peers are mono-room today (P4 will lift this).
+    // one room can — peers are mono-room today (P4 will lift this).
     let mut affected_room: Option<RoomId> = None;
     for kv in inner.rooms.iter() {
         if kv.value().dc_forwarders.remove(source_id).is_some() {

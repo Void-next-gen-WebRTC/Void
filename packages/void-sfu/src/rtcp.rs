@@ -7,8 +7,8 @@
 
 //! RTCP feedback API.
 //!
-//! For now this module exposes a single high-level operation â€”
-//! [`Sfu::request_keyframe`] â€” synthesising a `PictureLossIndication`
+//! For now this module exposes a single high-level operation —
+//! [`Sfu::request_keyframe`] — synthesising a `PictureLossIndication`
 //! addressed at a given media source. Future extensions (FIR, NACK relay,
 //! TWCC bandwidth estimation) plug in here.
 

@@ -45,7 +45,7 @@ pub struct SfuConfig {
     pub stats_flush_interval: Duration,
 
     /// Ordered chain of RTP interceptors. Invoked on ingress (once per
-    /// packet) and on egress (once per destination). Empty by default â€”
+    /// packet) and on egress (once per destination). Empty by default —
     /// the hot path short-circuits when this list is empty so there is
     /// no per-packet cost unless an interceptor is registered.
     pub interceptors: Vec<Arc<dyn PacketInterceptor>>,

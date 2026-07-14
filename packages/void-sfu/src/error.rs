@@ -40,7 +40,7 @@ pub enum SfuError {
     #[error("signal sink delivery failed for peer {peer}")]
     SinkDelivery { peer: Arc<str> },
 
-    /// Generic internal invariant violation. Never `panic!()` â€” bubble up instead.
+    /// Generic internal invariant violation. Never `panic!()` — bubble up instead.
     #[error("internal invariant violated: {0}")]
     Internal(&'static str),
 }

@@ -9,7 +9,7 @@
 //!
 //! Hosts call [`Sfu::metrics_snapshot`] on a slow tick (>= 1 s) and convert
 //! the structured snapshot to whatever observability format they use. The
-//! library never owns the exporter â€” staying transport- and stack-agnostic.
+//! library never owns the exporter — staying transport- and stack-agnostic.
 
 use crate::id::PeerId;
 use crate::sfu::Sfu;

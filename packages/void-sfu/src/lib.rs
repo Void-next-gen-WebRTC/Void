@@ -32,7 +32,7 @@
 //! use void_sfu::{Sfu, SfuConfig, PeerId, RoomId, SignalSink, Outbound, SfuResult};
 //! use async_trait::async_trait;
 //!
-//! struct MySink { /* â€¦ your transport â€¦ */ }
+//! struct MySink { /* … your transport … */ }
 //!
 //! #[async_trait]
 //! impl SignalSink for MySink {

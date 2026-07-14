@@ -206,7 +206,7 @@ pub fn analyze_frame(data: &[u8], width: u32, height: u32) -> String {
     }
     let avg = total / (width * height) as u64;
     format!(
-        "Frame {}x{} - LuminositÃ© moyenne (R): {}",
+        "Frame {}x{} - Luminosité moyenne (R): {}",
         width, height, avg
     )
 }
@@ -258,7 +258,7 @@ pub fn is_frozen_frame(data1: &[u8], data2: &[u8], tolerance: u8) -> bool {
 // utilities ensure robust and secure communication.
 // =================================
 
-// Calcule un score de qualitÃ© rÃ©seau (0-3) bas sur WebRTC stats
+// Calcule un score de qualité réseau (0-3) bas sur WebRTC stats
 #[wasm_bindgen]
 pub fn calculate_network_quality(latency_ms: f32, packet_loss: f32, jitter_ms: f32) -> u8 {
     // 3: Excellent, 2: Moyen, 1: Mauvais, 0: Critique/Dconnect
@@ -353,7 +353,7 @@ pub fn compute_fingerprint(signals: &str) -> String {
 #[wasm_bindgen]
 pub fn check_quality(bitrate: u32) -> String {
     if bitrate < 5000 {
-        format!("Bitrate faible: {} kbps - QualitÃ© SD", bitrate)
+        format!("Bitrate faible: {} kbps - Qualité SD", bitrate)
     } else {
         format!("Bitrate actuel: {} kbps - Analysé par Rust", bitrate)
     }
@@ -441,7 +441,7 @@ impl SmartGate {
         }
     }
 
-    /// Degraded processing path â€” aggressive gating + noise floor injection.
+    /// Degraded processing path — aggressive gating + noise floor injection.
     fn _process_fallback(&mut self, audio: &mut [f32]) {
         let rms = rms_volume(audio);
         let target = if rms > 0.45 { 0.25 } else { 0.0 };
@@ -505,16 +505,16 @@ impl TransientSuppressor {
         for sample in audio.iter_mut() {
             let abs_s = sample.abs();
 
-            // Enveloppe rapide pour capter le clic immÃ©diatement (~1ms @48kHz)
+            // Enveloppe rapide pour capter le clic immédiatement (~1ms @48kHz)
             self.fast_env = self.fast_env * 0.9 + abs_s * 0.1;
 
-            // Enveloppe lente reprÃ©sentant l'Ã©nergie globale continue de la voix (~20ms @48kHz)
+            // Enveloppe lente représentant l'énergie globale continue de la voix (~20ms @48kHz)
             self.slow_env = self.slow_env * 0.999 + abs_s * 0.001;
 
-            // Si on dÃ©tecte un pic trÃ¨s intense et soudain (typiquement clavier mÃ©canique)
+            // Si on détecte un pic très intense et soudain (typiquement clavier mécanique)
             if self.fast_env > self.slow_env * self.threshold {
                 let target_gain = (self.slow_env * self.threshold) / self.fast_env.max(0.0001);
-                // On lisse lÃ©gÃ¨rement la rÃ©duction
+                // On lisse légèrement la réduction
                 *sample *= target_gain.powf(1.5);
             }
         }

@@ -40,7 +40,7 @@ pub(super) fn spawn_source_reader(
     codec: RTCRtpCodecCapability,
 ) {
     // Per-track jitter parameters: derive clock rate from the negotiated
-    // codec capability (Opus 48k, VP8/VP9/H264/AV1 90k, â€¦) and allow a
+    // codec capability (Opus 48k, VP8/VP9/H264/AV1 90k, …) and allow a
     // host-supplied override keyed by MIME type.
     let mime_lower = codec.mime_type.to_ascii_lowercase();
     let override_policy = config
@@ -64,7 +64,7 @@ pub(super) fn spawn_source_reader(
             jitter.push(packet);
             while let Some(p) = jitter.pop() {
                 if tx_track.try_send(p).is_err() {
-                    // Bounded channel full â€” packet dropped on purpose to
+                    // Bounded channel full — packet dropped on purpose to
                     // protect the worker. Hosts can wire a metric later.
                     debug!("RTP fan-in queue full; dropping packet");
                 }
@@ -75,7 +75,7 @@ pub(super) fn spawn_source_reader(
 
 /// Drains the bounded RTP channel and writes each packet to every active
 /// destination track for the source. Runs the configured interceptor chain
-/// twice â€” once at ingress, once per destination â€” short-circuiting when
+/// twice — once at ingress, once per destination — short-circuiting when
 /// no interceptor is registered to keep the empty-config fast path
 /// branchless beyond the `is_empty` check.
 pub(super) fn spawn_fan_out_worker(
