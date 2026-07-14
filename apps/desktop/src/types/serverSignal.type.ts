@@ -17,6 +17,11 @@ export type ServerSignal =
     | { type: 'error'; message: string }
     // ---- Phase 3 push events ----
     | { type: 'authenticated'; userId: string; ok: boolean }
+    // Pushed right after 'authenticated': STUN servers plus a freshly
+    // minted, short-lived TURN credential (if a TURN deployment is
+    // configured server-side). Merged into the RTCPeerConnection's ICE
+    // server list — see useSfuConnection.ts.
+    | { type: 'ice-servers'; servers: RTCIceServer[] }
     | { type: 'server-member-presence'; serverId: string; userId: string; online: boolean }
     | { type: 'server-member-added'; serverId: string; member: UserSummary }
     | { type: 'server-member-removed'; serverId: string; userId: string }

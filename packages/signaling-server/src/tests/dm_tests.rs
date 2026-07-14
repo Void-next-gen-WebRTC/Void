@@ -65,6 +65,7 @@ fn build_state(users: &[&str], friends: &[(&str, &str, &str, &str)]) -> Arc<AppS
         sfu,
         auth_store: store,
         subscriptions: Subscriptions::new(),
+        turn: None,
     })
 }
 

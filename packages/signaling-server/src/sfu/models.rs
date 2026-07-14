@@ -13,6 +13,18 @@ pub struct ServerChannel {
     pub r#type: String,
 }
 
+/// Wire-compatible with the browser's `RTCIceServer` dictionary
+/// (`urls` / `username` / `credential`), so the client can spread it
+/// directly into `new RTCPeerConnection({ iceServers: [...] })`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IceServerConfig {
+    pub urls: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub username: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credential: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Server {
     pub id: String,
@@ -211,6 +223,16 @@ pub enum ServerMessage {
     Authenticated {
         user_id: String,
         ok: bool,
+    },
+
+    /// Pushed once right after a successful `Authenticate`. Carries the
+    /// STUN servers (static) plus a freshly-minted, time-limited TURN
+    /// credential (if a TURN deployment is configured) that the client
+    /// merges into its `RTCPeerConnection` ICE server list. See
+    /// `crate::turn` for the credential-minting scheme.
+    #[serde(rename_all = "camelCase")]
+    IceServers {
+        servers: Vec<IceServerConfig>,
     },
 
     /// One member's online presence on a server changed.

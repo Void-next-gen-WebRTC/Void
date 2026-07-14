@@ -9,7 +9,7 @@
 //! `signaling_server` library crate (`src/lib.rs`) so they can be reused
 //! by integration tests and criterion benchmarks.
 
-use signaling_server::{auth, fraud, friends, metrics, nonce, sfu, store};
+use signaling_server::{auth, fraud, friends, metrics, nonce, sfu, store, turn};
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -71,6 +71,14 @@ async fn main() {
     let server_registry_for_auth = server_registry.clone();
     sfu::registry::spawn_flusher(server_registry.clone());
 
+    let turn_config = turn::TurnConfig::from_env();
+    if turn_config.is_none() {
+        tracing::warn!(
+            "TURN_URLS/TURN_SECRET not set clients behind symmetric/CGNAT \
+             NATs will fail to establish audio/video (STUN-only ICE)."
+        );
+    }
+
     let app_state = Arc::new(AppState {
         peers: RwLock::new(HashMap::new()),
         chat_history: RwLock::new(HashMap::new()),
@@ -79,6 +87,7 @@ async fn main() {
         sfu: sfu.clone(),
         auth_store: auth_store.clone(),
         subscriptions: Subscriptions::new(),
+        turn: turn_config,
     });
 
     // Wire the SFU's room-event observer to broadcast peer-joined / peer-left

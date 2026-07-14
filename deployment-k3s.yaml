@@ -18,10 +18,16 @@
 #     kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 #     kubectl wait --for=condition=Available -n cert-manager deploy --all --timeout=120s
 #
-# 1. Signaling server runtime secrets (→ secrets.JWT_SECRET, secrets.PUBLIC_IP):
+# 1. Signaling server runtime secrets (→ secrets.JWT_SECRET, secrets.PUBLIC_IP,
+#    secrets.TURN_SECRET). TURN_SECRET is a long random string shared between
+#    the signaling server (mints time-limited credentials) and coturn (verifies
+#    them via static-auth-secret) — generate one with `openssl rand -hex 32`.
+#    Without it, clients get STUN-only ICE and voice/stream fails behind
+#    symmetric/CGNAT NATs (the cross-account bug this TURN deployment fixes).
 #    kubectl create secret generic void-signaling-secrets \
 #      --from-literal=JWT_SECRET='<secrets.JWT_SECRET>' \
 #      --from-literal=PUBLIC_IP='<secrets.PUBLIC_IP>' \
+#      --from-literal=TURN_SECRET='<secrets.TURN_SECRET>' \
 #      -n void
 #
 # 2. Grafana admin (→ secrets.GF_ADMIN_USER, secrets.GF_ADMIN_PASSWORD):
@@ -620,6 +626,20 @@ spec:
             # ICE_UDP_PORT: fixed single UDP mux socket — prevents Docker/k8s bridge IP leaks
             - name: ICE_UDP_PORT
               value: "10000"
+            # TURN_URLS / TURN_SECRET: enables the signaling server to mint
+            # short-lived TURN credentials (see packages/signaling-server/src/turn.rs)
+            # pushed to clients as ServerMessage::IceServers right after auth.
+            # Uses the api.${DOMAIN} DNS name (already an A record to this VM's
+            # public IP) rather than PUBLIC_IP directly, so no extra secret lookup
+            # is needed here. Must match the coturn DaemonSet's static-auth-secret
+            # below (same void-signaling-secrets/TURN_SECRET key).
+            - name: TURN_URLS
+              value: "turn:api.${DOMAIN}:3478"
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: void-signaling-secrets
+                  key: TURN_SECRET
             # PRIMARY_PIN_HASH / BACKUP_PIN_HASH are build-time Rust env vars compiled
             # into the binary by the CI (cargo build env). No runtime injection needed.
 
@@ -705,6 +725,173 @@ spec:
       targetPort: 3001
       protocol: TCP
   type: ClusterIP
+
+---
+# ============================================================
+# ConfigMap — coturn config template
+#
+# static-auth-secret and external-ip are runtime secrets, so this is a
+# TEMPLATE (REPLACE_* placeholders) rendered by an initContainer into an
+# emptyDir volume, exactly like the alertmanager-config pattern above.
+#
+# use-auth-secret + static-auth-secret implement coturn's REST API scheme:
+# the signaling server mints "{expiry}:{userId}" / HMAC-SHA1(secret) pairs
+# (see packages/signaling-server/src/turn.rs) and coturn independently
+# recomputes the same HMAC to validate them — no shared DB, no RPC.
+# ============================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: turn-config
+  namespace: void
+  labels:
+    app: coturn
+data:
+  turnserver.conf.tpl: |
+    listening-port=3478
+    min-port=49160
+    max-port=49200
+    fingerprint
+    lt-cred-mech
+    use-auth-secret
+    static-auth-secret=REPLACE_TURN_SECRET
+    realm=REPLACE_DOMAIN
+    # Oracle Cloud 1:1 NAT: advertise the public IP so relay candidates are
+    # reachable — same rationale as PUBLIC_IP/nat_1to1_ips in main.rs for
+    # the signaling server's own ICE UDP mux.
+    external-ip=REPLACE_EXTERNAL_IP
+    no-cli
+    no-tlsv1
+    no-tlsv1_1
+    # This is a media relay, not a general-purpose proxy — refuse to relay
+    # towards RFC1918/loopback/link-local ranges (SSRF-style abuse guard).
+    denied-peer-ip=0.0.0.0-0.255.255.255
+    denied-peer-ip=10.0.0.0-10.255.255.255
+    denied-peer-ip=100.64.0.0-100.127.255.255
+    denied-peer-ip=127.0.0.0-127.255.255.255
+    denied-peer-ip=169.254.0.0-169.254.255.255
+    denied-peer-ip=172.16.0.0-172.31.255.255
+    denied-peer-ip=192.0.0.0-192.0.0.255
+    denied-peer-ip=192.168.0.0-192.168.255.255
+    denied-peer-ip=198.18.0.0-198.19.255.255
+    no-multicast-peers
+
+---
+# ============================================================
+# DaemonSet — coturn (TURN relay)
+#
+# Why DaemonSet + hostNetwork (mirrors signaling-server above)?
+#   coturn needs a predictable, real host port for the TURN control
+#   channel (3478) plus a UDP relay port range (49160-49200). Both must
+#   be reachable via Oracle Cloud's 1:1 NAT; hostNetwork exposes the
+#   real node IP directly instead of a bridge-network IP that would be
+#   advertised as an unreachable relay candidate.
+#
+# Why a port range instead of a Service?
+#   Same reasoning as the signaling-server's ICE_UDP_PORT: k3s/klipper
+#   LoadBalancer services don't support wide UDP port ranges. With
+#   hostNetwork: true there is no kube-proxy DNAT in the way anyway —
+#   coturn binds the range directly on the host network namespace, so
+#   no Service is needed for the data plane (only for cluster-internal
+#   DNS, which coturn doesn't need).
+# ============================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: coturn
+  namespace: void
+  labels:
+    app: coturn
+    app.kubernetes.io/part-of: void
+spec:
+  selector:
+    matchLabels:
+      app: coturn
+  template:
+    metadata:
+      labels:
+        app: coturn
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      restartPolicy: Always
+
+      # Renders turnserver.conf.tpl → turnserver.conf, substituting the
+      # shared secret and public IP at pod start (never baked into the
+      # image or the ConfigMap in plaintext).
+      initContainers:
+        - name: coturn-config-init
+          image: alpine:3.19
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cp /etc/coturn-tpl/turnserver.conf.tpl /etc/coturn-rendered/turnserver.conf
+              sed -i "s|REPLACE_TURN_SECRET|${TURN_SECRET}|g"   /etc/coturn-rendered/turnserver.conf
+              sed -i "s|REPLACE_EXTERNAL_IP|${PUBLIC_IP}|g"     /etc/coturn-rendered/turnserver.conf
+              sed -i "s|REPLACE_DOMAIN|${DOMAIN}|g"             /etc/coturn-rendered/turnserver.conf
+              echo "coturn config rendered successfully."
+          env:
+            - name: TURN_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: void-signaling-secrets
+                  key: TURN_SECRET
+            - name: PUBLIC_IP
+              valueFrom:
+                secretKeyRef:
+                  name: void-signaling-secrets
+                  key: PUBLIC_IP
+            - name: DOMAIN
+              value: "${DOMAIN}"
+          volumeMounts:
+            - name: turn-config-tpl
+              mountPath: /etc/coturn-tpl
+              readOnly: true
+            - name: turn-config-rendered
+              mountPath: /etc/coturn-rendered
+
+      containers:
+        - name: coturn
+          image: coturn/coturn:4.6.2-r2
+          args:
+            - "-c"
+            - "/etc/coturn/turnserver.conf"
+            - "--no-cli"
+
+          ports:
+            - name: turn-udp
+              containerPort: 3478
+              protocol: UDP
+              hostPort: 3478
+            - name: turn-tcp
+              containerPort: 3478
+              protocol: TCP
+              hostPort: 3478
+            # The 49160-49200 relay range isn't expressible as discrete
+            # containerPort entries; with hostNetwork: true coturn binds it
+            # directly on the host, so no port-mapping declaration is
+            # required for traffic to flow — this is purely informational.
+
+          volumeMounts:
+            - name: turn-config-rendered
+              mountPath: /etc/coturn
+              readOnly: true
+
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "500m"
+              memory: "256Mi"
+
+      volumes:
+        - name: turn-config-tpl
+          configMap:
+            name: turn-config
+        - name: turn-config-rendered
+          emptyDir: {}
 
 ---
 # ============================================================

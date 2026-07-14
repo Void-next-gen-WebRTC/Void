@@ -62,6 +62,14 @@ export function useSfuConnection({
     const orphanStreamsRef = useRef<Map<string, { stream: MediaStream; kind: string }>>(new Map());
     /** Track-maps received before their corresponding `ontrack` event. */
     const pendingTrackMapsRef = useRef<Map<string, { userId: string; kind: string }>>(new Map());
+    /**
+     * TURN servers pushed by the signaling server right after auth (see
+     * `case 'ice-servers'` below). `null` until the first push arrives —
+     * `connectSFU` falls back to the static STUN-only `ICE_SERVERS` list
+     * in that case, which is why voice/stream fails across NATs that need
+     * a relay (the original cross-account bug this was added to fix).
+     */
+    const dynamicIceServersRef = useRef<RTCIceServer[]>([]);
 
     // ---- Perfect-negotiation state ----
     // The SFU is the "impolite" peer; this client is "polite". On glare
@@ -97,7 +105,11 @@ export function useSfuConnection({
         console.log('[VOICE] connectSFU — creating PeerConnection');
         if (sfuConnectionRef.current) sfuConnectionRef.current.close();
 
-        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        const iceServers = dynamicIceServersRef.current.length > 0
+            ? [...ICE_SERVERS, ...dynamicIceServersRef.current]
+            : ICE_SERVERS;
+        console.log('[VOICE] connectSFU iceServers:', iceServers.map(s => s.urls));
+        const pc = new RTCPeerConnection({ iceServers });
         sfuConnectionRef.current = pc;
 
         pc.oniceconnectionstatechange = () => console.log('[VOICE] PC ice state →', pc.iceConnectionState);
@@ -389,6 +401,14 @@ export function useSfuConnection({
                 case 'friend-request-cancelled':
                 case 'friend-removed':
                     emitSignalingEvent(msg.type, msg as never);
+                    break;
+                case 'ice-servers':
+                    // Received once right after 'authenticated'. Store for the
+                    // *next* connectSFU() — if a PC is already open (rare race:
+                    // reconnect mid-call) it keeps its current ICE config until
+                    // the following renegotiation/reconnect picks up the new one.
+                    console.log('[VOICE] ice-servers received:', msg.servers.map(s => s.urls));
+                    dynamicIceServersRef.current = msg.servers;
                     break;
                 case 'authenticated':
                 case 'server-member-presence':

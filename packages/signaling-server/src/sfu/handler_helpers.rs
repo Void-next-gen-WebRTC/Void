@@ -17,11 +17,12 @@ use tracing::debug;
 
 use super::broadcast::{notify_user, serialize_message};
 use super::dm;
-use super::models::{RpcError, ServerMessage};
+use super::models::{IceServerConfig, RpcError, ServerMessage};
 use super::state::AppState;
 use crate::auth::jwt;
 use crate::errors::ApiError;
 use crate::metrics::WS_QUEUE_DROPPED;
+use crate::turn;
 
 /// Validates the JWT, binds the WS to the auth-keyed registry, and replies
 /// with [`ServerMessage::Authenticated`]. Side effect: upon success, the
@@ -33,7 +34,7 @@ pub async fn handle_authenticate(
     auth_user_id: &mut Option<String>,
     token: String,
 ) {
-    let outcome = match jwt::decode_token(&token) {
+    let authenticated_user_id = match jwt::decode_token(&token) {
         Ok(claims) => {
             // Replace any previous binding (eg. ghost ws after reconnect).
             if let Some(old) = auth_user_id.as_deref() {
@@ -41,24 +42,64 @@ pub async fn handle_authenticate(
             }
             state.subscriptions.bind_user(&claims.sub, tx.clone());
             *auth_user_id = Some(claims.sub.clone());
-            ServerMessage::Authenticated {
-                user_id: claims.sub,
+            let outcome = ServerMessage::Authenticated {
+                user_id: claims.sub.clone(),
                 ok: true,
+            };
+            if let Some(payload) = serialize_message(&outcome) {
+                if tx.try_send(payload).is_err() {
+                    WS_QUEUE_DROPPED.inc();
+                }
             }
+            Some(claims.sub)
         }
         Err(e) => {
             debug!("WS auth failed: {:?}", e);
             *auth_user_id = None;
-            ServerMessage::Authenticated {
+            let outcome = ServerMessage::Authenticated {
                 user_id: String::new(),
                 ok: false,
+            };
+            if let Some(payload) = serialize_message(&outcome) {
+                if tx.try_send(payload).is_err() {
+                    WS_QUEUE_DROPPED.inc();
+                }
             }
+            None
         }
     };
 
-    if let Some(payload) = serialize_message(&outcome) {
-        if tx.try_send(payload).is_err() {
-            WS_QUEUE_DROPPED.inc();
+    // Push the ICE server list right after a successful auth. Static STUN
+    // is always included; a short-lived TURN credential is appended only
+    // when a TURN deployment is configured (state.turn). Without TURN,
+    // clients behind symmetric/CGNAT NATs will fail to establish media —
+    // see crate::turn for why this exists.
+    if let Some(user_id) = authenticated_user_id {
+        let mut servers = vec![
+            IceServerConfig {
+                urls: vec![
+                    "stun:stun.l.google.com:19302".to_string(),
+                    "stun:stun1.l.google.com:19302".to_string(),
+                ],
+                username: None,
+                credential: None,
+            },
+        ];
+
+        if let Some(turn_config) = state.turn.as_ref() {
+            let (username, credential) = turn::mint_credential(turn_config, &user_id);
+            servers.push(IceServerConfig {
+                urls: turn_config.urls.clone(),
+                username: Some(username),
+                credential: Some(credential),
+            });
+        }
+
+        let ice_servers_msg = ServerMessage::IceServers { servers };
+        if let Some(payload) = serialize_message(&ice_servers_msg) {
+            if tx.try_send(payload).is_err() {
+                WS_QUEUE_DROPPED.inc();
+            }
         }
     }
 }

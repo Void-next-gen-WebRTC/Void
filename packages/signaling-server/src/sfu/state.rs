@@ -1,6 +1,7 @@
 use super::registry::ServerRegistry;
 use super::subscriptions::Subscriptions;
 use crate::store::Store;
+use crate::turn::TurnConfig;
 use serde::Serialize;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -75,4 +76,8 @@ pub struct AppState {
     pub auth_store: Store,
     /// WS-only push subscriptions (text channels, server presence).
     pub subscriptions: Arc<Subscriptions>,
+    /// `None` when no TURN server is configured (e.g. local dev) — clients
+    /// then only receive STUN, which is insufficient behind symmetric/CGNAT
+    /// networks.
+    pub turn: Option<TurnConfig>,
 }
