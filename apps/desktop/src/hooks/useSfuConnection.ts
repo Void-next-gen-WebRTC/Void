@@ -10,6 +10,47 @@ const ICE_SERVERS: RTCIceServer[] = [
 ];
 
 /**
+ * Diagnostic-only: inspects `pc.getStats()` for the currently nominated
+ * candidate pair and logs whether the connection is actually going through
+ * the TURN relay (`candidateType: 'relay'`) or a direct host/srflx path.
+ * Just offering TURN in the ICE server list doesn't guarantee the browser
+ * picks it — ICE prefers lower-latency direct paths by default, and only
+ * falls back to relay if those fail outright, not if they degrade after
+ * the fact. This is how we tell, after an ICE flap, what path was in use.
+ */
+const logSelectedCandidatePair = async (pc: RTCPeerConnection, label: string) => {
+    try {
+        const stats = await pc.getStats();
+        let pair: any = null;
+        stats.forEach((report: any) => {
+            if (report.type === 'candidate-pair' && report.nominated && report.state === 'succeeded') {
+                pair = report;
+            }
+        });
+        if (!pair) {
+            // Fallback for browsers that don't set `state` reliably.
+            stats.forEach((report: any) => {
+                if (report.type === 'candidate-pair' && report.nominated) pair = report;
+            });
+        }
+        if (!pair) {
+            console.log(`[VOICE] [candidate-pair] ${label} — none nominated yet`);
+            return;
+        }
+        const local: any = stats.get(pair.localCandidateId);
+        const remote: any = stats.get(pair.remoteCandidateId);
+        console.log(
+            `[VOICE] [candidate-pair] ${label} local=${local?.candidateType ?? '?'}/${local?.protocol ?? '?'} `
+            + `remote=${remote?.candidateType ?? '?'}/${remote?.protocol ?? '?'} `
+            + `(${remote?.address ?? remote?.ip ?? '?'}:${remote?.port ?? '?'}) `
+            + `rtt=${pair.currentRoundTripTime ?? '?'}s`
+        );
+    } catch (err) {
+        console.warn('[VOICE] [candidate-pair] getStats failed:', err);
+    }
+};
+
+/**
  * Manages the single SFU peer-connection, screen-track lifecycle,
  * and dispatching of incoming signaling messages.
  */
@@ -71,6 +112,8 @@ export function useSfuConnection({
      * a relay (the original cross-account bug this was added to fix).
      */
     const dynamicIceServersRef = useRef<RTCIceServer[]>([]);
+    /** Interval polling getStats() for the selected candidate pair (diagnostic). */
+    const candidatePairPollRef = useRef<number | null>(null);
 
     // ---- Perfect-negotiation state ----
     // The SFU is the "impolite" peer; this client is "polite". On glare
@@ -105,6 +148,10 @@ export function useSfuConnection({
     const connectSFU = useCallback(async () => {
         console.log('[VOICE] connectSFU — creating PeerConnection');
         if (sfuConnectionRef.current) sfuConnectionRef.current.close();
+        if (candidatePairPollRef.current) {
+            window.clearInterval(candidatePairPollRef.current);
+            candidatePairPollRef.current = null;
+        }
 
         const iceServers = dynamicIceServersRef.current.length > 0
             ? [...ICE_SERVERS, ...dynamicIceServersRef.current]
@@ -113,9 +160,21 @@ export function useSfuConnection({
         const pc = new RTCPeerConnection({ iceServers });
         sfuConnectionRef.current = pc;
 
-        pc.oniceconnectionstatechange = () => console.log('[VOICE] PC ice state →', pc.iceConnectionState);
+        pc.oniceconnectionstatechange = () => {
+            console.log('[VOICE] PC ice state →', pc.iceConnectionState);
+            // Log which candidate pair (relay/srflx/host) is actually in use
+            // on every state change — this is how we tell whether TURN is
+            // really being used or if a fragile direct path won ICE priority.
+            void logSelectedCandidatePair(pc, `ice=${pc.iceConnectionState}`);
+        };
         pc.onconnectionstatechange = () => console.log('[VOICE] PC connection state →', pc.connectionState);
         pc.onsignalingstatechange = () => console.log('[VOICE] PC signaling state →', pc.signalingState);
+
+        // Also poll periodically (every 5s) so a silent path change/decay
+        // between state-change events is still visible in the logs.
+        candidatePairPollRef.current = window.setInterval(() => {
+            void logSelectedCandidatePair(pc, 'periodic');
+        }, 5000);
 
         // Reset perfect-negotiation flags for the new PC instance.
         makingOfferRef.current = false;
