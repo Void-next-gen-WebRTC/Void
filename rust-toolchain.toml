@@ -12,3 +12,11 @@
 # deliberately, in its own PR, when upgrading.
 channel = "1.97.0"
 components = ["clippy", "rustfmt"]
+# aarch64-unknown-linux-gnu: needed to cross-compile signaling-server for the
+# Oracle Ampere (ARM64) VM. This file is an *override* — rustup uses it (and
+# only it) for every `cargo`/`rustc` invocation inside this repo, ignoring
+# whatever `targets` a CI step configured for the generic "stable" toolchain.
+# Without it listed here, CI auto-installs a fresh 1.97.0 toolchain with only
+# the host std (x86_64), and cross-compilation fails with
+# "error[E0463]: can't find crate for `std`" for the aarch64 target.
+targets = ["aarch64-unknown-linux-gnu"]
