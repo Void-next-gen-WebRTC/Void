@@ -10,7 +10,7 @@ use crate::auth::middleware::AuthUser;
 use crate::errors::ApiError;
 use crate::models::*;
 use crate::negotiate::{accepts_proto, decode_body, negotiate, negotiate_list, Negotiated};
-use crate::sfu::state::AppState;
+use crate::gateway::state::AppState;
 
 pub mod core;
 

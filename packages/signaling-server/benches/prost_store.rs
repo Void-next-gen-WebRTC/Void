@@ -17,7 +17,7 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 use prost::Message;
 
 use signaling_server::fraud::store::{BanRecord, BanSnapshot, FingerprintRecord, RecidivismRecord};
-use signaling_server::sfu::registry::{ChannelRecord, ServerRecord, ServerSnapshot};
+use signaling_server::gateway::registry::{ChannelRecord, ServerRecord, ServerSnapshot};
 use signaling_server::store::{FriendRecord, StoreSnapshot, UserRecord};
 
 fn user_record(i: usize) -> UserRecord {

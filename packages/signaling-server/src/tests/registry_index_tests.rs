@@ -3,8 +3,8 @@ use std::sync::Arc;
 use dashmap::DashMap;
 use tokio::sync::Notify;
 
-use crate::sfu::models::{Server, ServerChannel};
-use crate::sfu::registry::{ChannelRecord, ServerRecord, ServerRegistry};
+use crate::gateway::models::{Server, ServerChannel};
+use crate::gateway::registry::{ChannelRecord, ServerRecord, ServerRegistry};
 
 /// Creates an empty registry backed by a temp file.
 fn temp_registry(dir: &std::path::Path) -> ServerRegistry {

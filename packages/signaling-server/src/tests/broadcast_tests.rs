@@ -1,5 +1,5 @@
-use crate::sfu::broadcast::serialize_message;
-use crate::sfu::models::{PeerInfo, ServerMessage};
+use crate::gateway::broadcast::serialize_message;
+use crate::gateway::models::{PeerInfo, ServerMessage};
 
 // ---------------------------------------------------------------------------
 // 1. serialize_message produces valid JSON for Joined

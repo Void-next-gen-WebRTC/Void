@@ -12,10 +12,10 @@ use tempfile::tempdir;
 use tokio::sync::{mpsc, RwLock};
 use void_sfu::{Sfu, SfuConfig};
 
-use crate::sfu::dm;
-use crate::sfu::registry::ServerRegistry;
-use crate::sfu::state::{AppState, WS_CHANNEL_CAPACITY};
-use crate::sfu::subscriptions::Subscriptions;
+use crate::gateway::dm;
+use crate::gateway::registry::ServerRegistry;
+use crate::gateway::state::{AppState, WS_CHANNEL_CAPACITY};
+use crate::gateway::subscriptions::Subscriptions;
 use crate::store::{FriendRecord, Store, UserRecord};
 
 fn user(id: &str) -> UserRecord {
@@ -145,8 +145,8 @@ async fn notify_user_reaches_authenticated_socket_outside_voice() {
     // Reproduces the original bug: a user with no voice room must still
     // receive auth-scoped pushes. We use the friend-removed event as a
     // representative payload routed through `notify_user`.
-    use crate::sfu::broadcast::notify_user;
-    use crate::sfu::models::ServerMessage;
+    use crate::gateway::broadcast::notify_user;
+    use crate::gateway::models::ServerMessage;
 
     let state = build_state(&["alice"], &[]);
     let mut rx = bind(&state, "alice");
@@ -169,8 +169,8 @@ async fn notify_user_reaches_authenticated_socket_outside_voice() {
 
 #[tokio::test]
 async fn unbind_silences_subsequent_notifications() {
-    use crate::sfu::broadcast::notify_user;
-    use crate::sfu::models::ServerMessage;
+    use crate::gateway::broadcast::notify_user;
+    use crate::gateway::models::ServerMessage;
 
     let state = build_state(&["alice"], &[]);
     let mut rx = bind(&state, "alice");

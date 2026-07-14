@@ -35,7 +35,7 @@ graph TB
         AUTH_MOD["auth/<br/>register · login · me · search<br/>Argon2id · JWT HS256"]
         FRIENDS_MOD["friends/<br/>list · request · pending · accept · reject · remove"]
         FRAUD["fraud/<br/>IP/token rate-limit · ban store"]
-        SFU_MOD["sfu/<br/>handler · adapter · models<br/>(WS dispatch + Outbound bridge)"]
+        SFU_MOD["gateway/<br/>handler · adapter · models<br/>(WS dispatch + Outbound bridge)"]
         STORE["store.rs<br/>DashMap → .bin (prost) flush"]
         METRICS["metrics.rs<br/>Prometheus gauges & counters"]
         NEG["negotiate.rs<br/>Content negotiation JSON ↔ Protobuf"]
@@ -68,7 +68,7 @@ graph TB
 | `src/auth/` | Registration / login / `me` / user search. Argon2id hashing, JWT (HS256, 7-day expiry), Bearer middleware. |
 | `src/friends/` | Friend graph CRUD: send / accept / reject / remove + pending listing. |
 | `src/fraud/` | IP guard, fraud detector, ban store, fingerprint counters. |
-| `src/sfu/` | Adapts WebSocket frames to `void-sfu`: `handler.rs` dispatches messages, `adapter.rs` translates `Outbound`/`RoomEvent` into the WS protocol, `registry.rs` tracks application-level servers. |
+| `src/gateway/` | WebSocket/HTTP application layer — adapts WS frames to `void-sfu`: `handler.rs` dispatches messages, `adapter.rs` translates `Outbound`/`RoomEvent` into the WS protocol, `registry.rs` tracks application-level servers. Also owns auth-scoped push (`dm.rs`, `rpc.rs`, `broadcast.rs`, `subscriptions.rs`) — broader than just the media path, hence the name. |
 | `src/store.rs` | In-memory `DashMap` store with **prost** binary serialization (`.bin` files), debounced background flush. |
 | `src/metrics.rs` | Prometheus exposition (`/metrics`): active peers, channels, ingress/egress bandwidth, packets per second. |
 | `src/negotiate.rs` | Per-request `Content-Type`/`Accept` negotiation between JSON and `application/x-protobuf`. |
@@ -129,8 +129,8 @@ classDiagram
 ```mermaid
 sequenceDiagram
     participant A as Peer A
-    participant WS as signaling-server (sfu/handler)
-    participant ADP as sfu/adapter
+    participant WS as signaling-server (gateway/handler)
+    participant ADP as gateway/adapter
     participant LIB as void-sfu::Sfu
     participant PC as webrtc-rs PeerConnection
 
@@ -181,7 +181,7 @@ Friends are **not** consumed via REST anymore. The desktop client opens a single
 | `dm.history` | `{ userId }` | `DmEntry[]` | Full message history with one peer (oldest-first). Forbidden if not friends. |
 | `dm.partners` | — | `UserSummary[]` | Friends the user has exchanged a DM with, recent-first. |
 
-Every call goes through `src/sfu/rpc.rs` and reuses the `friends/core.rs` and `sfu/dm.rs` business logic verbatim — no duplication between transports.
+Every call goes through `src/gateway/rpc.rs` and reuses the `friends/core.rs` and `gateway/dm.rs` business logic verbatim — no duplication between transports.
 
 ### Direct Messages (1-to-1) — push-only, no REST
 
@@ -215,10 +215,10 @@ Wire types:
 | `dm-message` | server → client | `{ type, id, fromUserId, toUserId, message, timestamp }` |
 | `dm-ack` | server → sender only | `{ type, id, clientMsgId?, timestamp }` |
 
-Server-side rules (enforced in [`sfu/dm.rs`](src/sfu/dm.rs)):
+Server-side rules (enforced in [`gateway/dm.rs`](src/gateway/dm.rs)):
 
 - **Friendship gate**: both `dm-send` and `dm.history` require an `accepted` friendship in `auth_store.friends`. Violations return `ApiError::Forbidden`.
-- **Persistence**: in-RAM ring buffer keyed by the ordered pair `(min_uid, max_uid)`, capped at `DM_HISTORY_CAP = 200` messages per pair. Survives only the lifetime of the process (no disk persistence in this iteration — see `sfu/state.rs`).
+- **Persistence**: in-RAM ring buffer keyed by the ordered pair `(min_uid, max_uid)`, capped at `DM_HISTORY_CAP = 200` messages per pair. Survives only the lifetime of the process (no disk persistence in this iteration — see `gateway/state.rs`).
 - **No saturation of the voice socket**: this WS is the auth/control channel; WebRTC RTP packets travel over a different ICE-negotiated UDP transport managed by `void-sfu`.
 
 ### Server-pushed friend events
@@ -594,7 +594,7 @@ Avoir extrait la SFU dans son propre crate (`packages/void-sfu`) permet de :
 | `src/auth/` | Inscription / connexion / `me` / recherche d'utilisateurs. Argon2id, JWT (HS256, expiration 7 jours), middleware Bearer. |
 | `src/friends/` | CRUD du graphe d'amis : envoyer / accepter / rejeter / supprimer + listing en attente. |
 | `src/fraud/` | Garde IP, détecteur de fraude, ban store, compteurs de fingerprint. |
-| `src/sfu/` | Adapte les trames WebSocket à `void-sfu` : `handler.rs` distribue les messages, `adapter.rs` traduit `Outbound`/`RoomEvent` vers le protocole WS, `registry.rs` suit les serveurs applicatifs. |
+| `src/gateway/` | Couche applicative WS/HTTP — adapte les trames WebSocket à `void-sfu` : `handler.rs` distribue les messages, `adapter.rs` traduit `Outbound`/`RoomEvent` vers le protocole WS, `registry.rs` suit les serveurs applicatifs. Porte aussi les pushs auth (`dm.rs`, `rpc.rs`, `broadcast.rs`, `subscriptions.rs`) — plus large que le seul chemin média, d'où le nom. |
 | `src/store.rs` | Store mémoire `DashMap` avec sérialisation binaire **prost** (fichiers `.bin`) et flush asynchrone debouncé. |
 | `src/metrics.rs` | Exposition Prometheus (`/metrics`) : pairs actifs, canaux, bande passante in/out, paquets/s. |
 | `src/negotiate.rs` | Négociation `Content-Type`/`Accept` entre JSON et `application/x-protobuf` à chaque requête. |
@@ -647,7 +647,7 @@ Les amis ne passent **plus** par REST côté client. Le desktop ouvre une seule 
 | `friends.remove` | `{ id }` | `{ removed }` | Supprimer une amitié par id. |
 | `friends.removeByUser` | `{ userId }` | `{ removed }` | Supprimer une amitié par id d'utilisateur. |
 
-Chaque appel passe par `src/sfu/rpc.rs` et réutilise telle quelle la logique métier de `friends/core.rs` — aucune duplication entre transports.
+Chaque appel passe par `src/gateway/rpc.rs` et réutilise telle quelle la logique métier de `friends/core.rs` — aucune duplication entre transports.
 
 ### Événements amis poussés par le serveur
 

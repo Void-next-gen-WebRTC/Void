@@ -22,8 +22,8 @@ use signaling_server::models::{
     UserSummaryList,
 };
 use signaling_server::negotiate::decode_body;
-use signaling_server::sfu::broadcast::serialize_message;
-use signaling_server::sfu::models::ServerMessage;
+use signaling_server::gateway::broadcast::serialize_message;
+use signaling_server::gateway::models::ServerMessage;
 
 fn sample_login_body() -> LoginBody {
     LoginBody {

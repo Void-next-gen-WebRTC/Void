@@ -6,8 +6,8 @@ use dashmap::DashMap;
 use prost::Message;
 use tokio::sync::Notify;
 
-use crate::sfu::models::{Server, ServerChannel};
-use crate::sfu::registry::{ServerRegistry, ServerSnapshot};
+use crate::gateway::models::{Server, ServerChannel};
+use crate::gateway::registry::{ServerRegistry, ServerSnapshot};
 
 /// Builds a minimal `Server` for testing purposes.
 fn make_server(idx: usize) -> Server {

@@ -9,7 +9,7 @@
 //! `signaling_server` library crate (`src/lib.rs`) so they can be reused
 //! by integration tests and criterion benchmarks.
 
-use signaling_server::{auth, fraud, friends, metrics, nonce, sfu, store, turn};
+use signaling_server::{auth, fraud, friends, gateway, metrics, nonce, store, turn};
 
 use std::collections::HashMap;
 use std::net::IpAddr;
@@ -31,11 +31,11 @@ use webrtc::ice::udp_mux::{UDPMuxDefault, UDPMuxParams};
 use webrtc::ice::udp_network::UDPNetwork;
 use webrtc::interceptor::registry::Registry as InterceptorRegistry;
 
-use sfu::adapter::WsRoomObserver;
-use sfu::handler::ws_handler;
-use sfu::registry::ServerRegistry;
-use sfu::state::AppState;
-use sfu::subscriptions::Subscriptions;
+use gateway::adapter::WsRoomObserver;
+use gateway::handler::ws_handler;
+use gateway::registry::ServerRegistry;
+use gateway::state::AppState;
+use gateway::subscriptions::Subscriptions;
 
 #[tokio::main]
 async fn main() {
@@ -69,12 +69,12 @@ async fn main() {
 
     let server_registry = ServerRegistry::load("servers.bin");
     let server_registry_for_auth = server_registry.clone();
-    sfu::registry::spawn_flusher(server_registry.clone());
+    gateway::registry::spawn_flusher(server_registry.clone());
 
     let turn_config = turn::TurnConfig::from_env();
     if turn_config.is_none() {
         tracing::warn!(
-            "TURN_URLS/TURN_SECRET not set clients behind symmetric/CGNAT \
+            "TURN_URLS/TURN_SECRET not set - clients behind symmetric/CGNAT \
              NATs will fail to establish audio/video (STUN-only ICE)."
         );
     }
@@ -131,7 +131,7 @@ async fn main() {
         .with_state(Arc::clone(&app_state))
         .nest(
             "/api/servers",
-            sfu::routes::router().with_state(Arc::clone(&app_state)),
+            gateway::routes::router().with_state(Arc::clone(&app_state)),
         )
         .nest(
             "/api/auth",

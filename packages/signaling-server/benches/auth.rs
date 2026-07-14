@@ -24,7 +24,7 @@ use rand::rngs::OsRng;
 
 use signaling_server::auth::jwt::{create_token, decode_token};
 use signaling_server::auth::password::{hash_password, verify_password};
-use signaling_server::sfu::crypto::verify_signature;
+use signaling_server::gateway::crypto::verify_signature;
 
 /// Forces the `JWT_SECRET` lazy lock to use the dev fallback so benches do
 /// not require any environment configuration.

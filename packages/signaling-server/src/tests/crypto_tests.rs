@@ -1,7 +1,7 @@
 use base64::{engine::general_purpose, Engine as _};
 use ed25519_dalek::{Signer, SigningKey};
 
-use crate::sfu::crypto::verify_signature;
+use crate::gateway::crypto::verify_signature;
 
 /// Generates an Ed25519 keypair and returns (public_key_b64, signing_key).
 fn gen_keypair() -> (String, SigningKey) {

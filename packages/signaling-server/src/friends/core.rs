@@ -12,9 +12,9 @@ use crate::errors::ApiError;
 use crate::models::{
     FriendRequestResult, PendingRequest, RemovedResponse, StatusResponse, UserSummary,
 };
-use crate::sfu::broadcast::notify_user;
-use crate::sfu::models::ServerMessage;
-use crate::sfu::state::AppState;
+use crate::gateway::broadcast::notify_user;
+use crate::gateway::models::ServerMessage;
+use crate::gateway::state::AppState;
 use crate::store::FriendRecord;
 
 #[inline]

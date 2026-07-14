@@ -1,4 +1,4 @@
-use crate::sfu::models::{ClientMessage, PeerInfo, ServerMessage};
+use crate::gateway::models::{ClientMessage, PeerInfo, ServerMessage};
 
 // ---------------------------------------------------------------------------
 // ClientMessage deserialization

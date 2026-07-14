@@ -20,11 +20,11 @@ pub mod auth;
 pub mod errors;
 pub mod fraud;
 pub mod friends;
+pub mod gateway;
 pub mod metrics;
 pub mod models;
 pub mod negotiate;
 pub mod nonce;
-pub mod sfu;
 pub mod store;
 pub mod turn;
 

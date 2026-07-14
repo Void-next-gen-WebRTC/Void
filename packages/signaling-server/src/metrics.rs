@@ -7,9 +7,9 @@ use prometheus::{
     IntGauge, TextEncoder,
 };
 
-use crate::sfu::broadcast::serialize_message;
-use crate::sfu::models::ServerMessage;
-use crate::sfu::state::AppState;
+use crate::gateway::broadcast::serialize_message;
+use crate::gateway::models::ServerMessage;
+use crate::gateway::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Existing metric definitions
