@@ -8,9 +8,9 @@ use axum::Router;
 
 use crate::auth::middleware::AuthUser;
 use crate::errors::ApiError;
+use crate::gateway::state::AppState;
 use crate::models::*;
 use crate::negotiate::{accepts_proto, decode_body, negotiate, negotiate_list, Negotiated};
-use crate::gateway::state::AppState;
 
 pub mod core;
 

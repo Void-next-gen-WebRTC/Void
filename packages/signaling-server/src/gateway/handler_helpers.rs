@@ -75,16 +75,14 @@ pub async fn handle_authenticate(
     // clients behind symmetric/CGNAT NATs will fail to establish media —
     // see crate::turn for why this exists.
     if let Some(user_id) = authenticated_user_id {
-        let mut servers = vec![
-            IceServerConfig {
-                urls: vec![
-                    "stun:stun.l.google.com:19302".to_string(),
-                    "stun:stun1.l.google.com:19302".to_string(),
-                ],
-                username: None,
-                credential: None,
-            },
-        ];
+        let mut servers = vec![IceServerConfig {
+            urls: vec![
+                "stun:stun.l.google.com:19302".to_string(),
+                "stun:stun1.l.google.com:19302".to_string(),
+            ],
+            username: None,
+            credential: None,
+        }];
 
         if let Some(turn_config) = state.turn.as_ref() {
             let (username, credential) = turn::mint_credential(turn_config, &user_id);

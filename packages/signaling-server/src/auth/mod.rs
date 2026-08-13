@@ -13,11 +13,11 @@ use uuid::Uuid;
 
 use crate::errors::ApiError;
 use crate::fraud::FraudState;
+use crate::gateway::crypto;
+use crate::gateway::registry::ServerRegistry;
 use crate::models::*;
 use crate::negotiate::{accepts_proto, decode_body, negotiate, negotiate_list, Negotiated};
 use crate::nonce::NonceStore;
-use crate::gateway::crypto;
-use crate::gateway::registry::ServerRegistry;
 use crate::store::{Store, UserRecord};
 use middleware::AuthUser;
 

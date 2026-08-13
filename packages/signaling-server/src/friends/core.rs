@@ -9,12 +9,12 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::errors::ApiError;
-use crate::models::{
-    FriendRequestResult, PendingRequest, RemovedResponse, StatusResponse, UserSummary,
-};
 use crate::gateway::broadcast::notify_user;
 use crate::gateway::models::ServerMessage;
 use crate::gateway::state::AppState;
+use crate::models::{
+    FriendRequestResult, PendingRequest, RemovedResponse, StatusResponse, UserSummary,
+};
 use crate::store::FriendRecord;
 
 #[inline]

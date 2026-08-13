@@ -17,13 +17,13 @@ use axum::http::{header, HeaderMap};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use prost::Message;
 
+use signaling_server::gateway::broadcast::serialize_message;
+use signaling_server::gateway::models::ServerMessage;
 use signaling_server::models::{
     AuthResponse, LoginBody, PendingRequest, PendingRequestList, UserProfile, UserSummary,
     UserSummaryList,
 };
 use signaling_server::negotiate::decode_body;
-use signaling_server::gateway::broadcast::serialize_message;
-use signaling_server::gateway::models::ServerMessage;
 
 fn sample_login_body() -> LoginBody {
     LoginBody {
